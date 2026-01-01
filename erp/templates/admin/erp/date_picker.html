@@ -1,0 +1,54 @@
+{% extends "admin/base_site.html" %} {% block content %}
+<div id="content-main">
+  <div class="module">
+    <h2>Select Statement Period for {{ customer.name }}</h2>
+    <p>Current Balance: <strong>₦{{ customer.account_balance }}</strong></p>
+
+    <form method="post" action="">
+      {% csrf_token %}
+      <div class="form-row">
+        <label for="start_date" style="display: block; margin-bottom: 5px"
+          >Start Date:</label
+        >
+        <input
+          type="date"
+          name="start_date"
+          id="start_date"
+          value="{{ default_start }}"
+          required
+          style="padding: 8px; border: 1px solid #ccc; border-radius: 4px"
+        />
+      </div>
+      <br />
+      <div class="form-row">
+        <label for="end_date" style="display: block; margin-bottom: 5px"
+          >End Date:</label
+        >
+        <input
+          type="date"
+          name="end_date"
+          id="end_date"
+          value="{{ today }}"
+          required
+          style="padding: 8px; border: 1px solid #ccc; border-radius: 4px"
+        />
+      </div>
+      <br />
+      <div class="submit-row" style="text-align: left; padding-left: 0">
+        <input
+          type="submit"
+          value="Generate PDF Statement"
+          class="default"
+          style="padding: 10px 20px"
+        />
+        <a
+          href="/admin/erp/customer/"
+          class="button"
+          style="margin-left: 10px; padding: 10px 20px; background: #79aec8"
+          >Cancel</a
+        >
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

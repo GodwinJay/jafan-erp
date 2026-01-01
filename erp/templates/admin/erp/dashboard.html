@@ -1,0 +1,444 @@
+{% extends "admin/base_site.html" %} {% load humanize %} {% block content %}
+<div class="px-4 pb-8">
+  <div class="mb-8 flex items-center justify-between">
+    <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100">
+      Performance Overview
+      <span class="text-gray-400 text-lg font-normal"
+        >| {{ stats.month_name }} {{ stats.year }}</span
+      >
+    </h1>
+  </div>
+
+  <!-- KPI Cards -->
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    <div
+      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 border-green-500"
+    >
+      <div
+        class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold"
+      >
+        Total Revenue
+      </div>
+      <div class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">
+        ₦{{ stats.revenue|intcomma }}
+      </div>
+    </div>
+
+    <div
+      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 border-red-500"
+    >
+      <div
+        class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold"
+      >
+        Total Expenses
+      </div>
+      <div class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">
+        ₦{{ stats.expenses|intcomma }}
+      </div>
+    </div>
+
+    <div
+      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 border-blue-600"
+    >
+      <div
+        class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold"
+      >
+        Net Profit
+      </div>
+      <div
+        class="mt-2 text-2xl font-bold {% if stats.net_profit >= 0 %}text-blue-600{% else %}text-red-500{% endif %}"
+      >
+        ₦{{ stats.net_profit|intcomma }}
+      </div>
+    </div>
+
+    <div
+      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 border-yellow-500"
+    >
+      <div
+        class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold"
+      >
+        Blocks Produced
+      </div>
+      <div class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">
+        {{ stats.production_count|intcomma }}
+      </div>
+    </div>
+  </div>
+
+  <!-- Debtors & Alerts Row -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <!-- Top Debtors -->
+    <div
+      class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700"
+    >
+      <div
+        class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
+      >
+        <h3 class="font-bold text-gray-700 dark:text-gray-200">
+          📉 Top Debtors (They Owe Us)
+        </h3>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm text-left">
+          <thead
+            class="text-xs text-gray-500 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-300"
+          >
+            <tr>
+              <th class="px-6 py-3">Customer</th>
+              <th class="px-6 py-3 text-right">Balance</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+            {% for debtor in debtors %}
+            <tr
+              class="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              <td class="px-6 py-4 font-medium text-gray-900 dark:text-white">
+                {{ debtor.name }}
+              </td>
+              <td class="px-6 py-4 text-right font-bold text-red-600">
+                ₦{{ debtor.account_balance|intcomma }}
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="2" class="px-6 py-4 text-center text-gray-500">
+                No debtors found. Good job!
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Inventory Alerts -->
+    <div
+      class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700"
+    >
+      <div
+        class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-red-50 dark:bg-red-900/20"
+      >
+        <h3 class="font-bold text-red-700 dark:text-red-400">
+          ⚠️ Inventory Alerts
+        </h3>
+      </div>
+      <div class="p-6">
+        {% if not alerts.materials and not alerts.blocks %}
+        <div class="flex items-center text-green-600 dark:text-green-400">
+          <span class="text-2xl mr-2">✅</span> All stock levels are healthy.
+        </div>
+        {% else %}
+        <ul class="space-y-3">
+          {% for mat in alerts.materials %}
+          <li
+            class="flex justify-between items-center p-3 bg-red-50 dark:bg-red-900/10 rounded-md border border-red-100 dark:border-red-800"
+          >
+            <span class="text-red-700 dark:text-red-300 font-medium"
+              >{{ mat.get_name_display }}</span
+            >
+            <span class="text-red-800 dark:text-red-200 font-bold text-sm"
+              >{{ mat.current_stock }} Left</span
+            >
+          </li>
+          {% endfor %} {% for block in alerts.blocks %}
+          <li
+            class="flex justify-between items-center p-3 bg-orange-50 dark:bg-orange-900/10 rounded-md border border-orange-100 dark:border-orange-800"
+          >
+            <span class="text-orange-700 dark:text-orange-300 font-medium"
+              >{{ block.name }}</span
+            >
+            <span class="text-orange-800 dark:text-orange-200 font-bold text-sm"
+              >{{ block.current_stock }} Left</span
+            >
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Supplies -->
+  <div
+    class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700 mb-8"
+  >
+    <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
+      <h3 class="font-bold text-gray-700 dark:text-gray-200">
+        🚚 Recent Supplies
+      </h3>
+    </div>
+    <div class="divide-y divide-gray-100 dark:divide-gray-700">
+      {% for log in activity %}
+      <div
+        class="p-4 hover:bg-gray-50 dark:hover:bg-gray-700 flex justify-between items-center"
+      >
+        <div>
+          <div class="font-bold text-gray-800 dark:text-gray-100">
+            {{ log.customer.name }}
+          </div>
+          <div class="text-sm text-gray-500 dark:text-gray-400">
+            {{ log.quantity_delivered }} x {{ log.block_type.name }}
+            <span
+              class="text-xs bg-gray-100 dark:bg-gray-600 px-2 py-0.5 rounded ml-2"
+              >{{ log.get_delivery_type_display }}</span
+            >
+          </div>
+        </div>
+        <div class="text-right">
+          <div class="font-bold text-gray-700 dark:text-gray-300">
+            ₦{{ log.total_value|intcomma }}
+          </div>
+          <div class="text-xs text-gray-400">{{ log.date }}</div>
+        </div>
+      </div>
+      {% empty %}
+      <div class="p-6 text-center text-gray-500">No recent activity.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Export Section -->
+  <div
+    class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700"
+  >
+    <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
+      <h3 class="font-bold text-gray-700 dark:text-gray-200">
+        📊 Export Reports
+      </h3>
+    </div>
+    <div class="p-6">
+      <!-- Date Filter Form -->
+      <div
+        class="mb-6 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700"
+      >
+        <div class="flex flex-wrap gap-4 items-end">
+          <div>
+            <label
+              class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1"
+              >Start Date</label
+            >
+            <input
+              type="date"
+              id="start_date"
+              name="start_date"
+              class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+            />
+          </div>
+          <div>
+            <label
+              class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1"
+              >End Date</label
+            >
+            <input
+              type="date"
+              id="end_date"
+              name="end_date"
+              class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+            />
+          </div>
+          <button
+            type="button"
+            onclick="applyDateFilters()"
+            class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+          >
+            Apply Dates
+          </button>
+          <button
+            type="button"
+            onclick="clearDateFilters()"
+            class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-md text-sm font-medium transition-colors"
+          >
+            Clear
+          </button>
+          <span
+            id="date_status"
+            class="text-sm text-green-600 dark:text-green-400 font-medium ml-2"
+          ></span>
+        </div>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+          Leave empty to export current month's data.
+        </p>
+      </div>
+
+      <!-- Export Buttons Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <!-- Sales -->
+        <div
+          class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow"
+        >
+          <div class="flex items-center mb-3">
+            <span class="text-2xl mr-2">💰</span>
+            <h4 class="font-semibold text-gray-800 dark:text-gray-200">
+              Sales Report
+            </h4>
+          </div>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            All supplies and deliveries
+          </p>
+          <div class="flex gap-2">
+            <a
+              href="/erp/export/sales/csv/"
+              class="export-link px-3 py-1.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded text-sm hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
+              >CSV</a
+            >
+            <a
+              href="/erp/export/sales/excel/"
+              class="export-link px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 transition-colors"
+              >Excel</a
+            >
+          </div>
+        </div>
+
+        <!-- Expenses -->
+        <div
+          class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow"
+        >
+          <div class="flex items-center mb-3">
+            <span class="text-2xl mr-2">📉</span>
+            <h4 class="font-semibold text-gray-800 dark:text-gray-200">
+              Expenses Report
+            </h4>
+          </div>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            All costs including auto-synced procurement
+          </p>
+          <div class="flex gap-2">
+            <a
+              href="/erp/export/expenses/csv/"
+              class="export-link px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded text-sm hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
+              >CSV</a
+            >
+            <a
+              href="/erp/export/expenses/excel/"
+              class="export-link px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 transition-colors"
+              >Excel</a
+            >
+          </div>
+        </div>
+
+        <!-- Production -->
+        <div
+          class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow"
+        >
+          <div class="flex items-center mb-3">
+            <span class="text-2xl mr-2">🏭</span>
+            <h4 class="font-semibold text-gray-800 dark:text-gray-200">
+              Production Report
+            </h4>
+          </div>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            Blocks produced by team & machine
+          </p>
+          <div class="flex gap-2">
+            <a
+              href="/erp/export/production/csv/"
+              class="export-link px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-sm hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
+              >CSV</a
+            >
+            <a
+              href="/erp/export/production/excel/"
+              class="export-link px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors"
+              >Excel</a
+            >
+          </div>
+        </div>
+
+        <!-- Customer Ledger -->
+        <div
+          class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow"
+        >
+          <div class="flex items-center mb-3">
+            <span class="text-2xl mr-2">👥</span>
+            <h4 class="font-semibold text-gray-800 dark:text-gray-200">
+              Customer Ledger
+            </h4>
+          </div>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            All customers with transaction history
+          </p>
+          <div class="flex gap-2">
+            <a
+              href="/erp/export/customers/"
+              class="export-link px-3 py-1.5 bg-purple-600 text-white rounded text-sm hover:bg-purple-700 transition-colors"
+              >Excel</a
+            >
+          </div>
+        </div>
+
+        <!-- Inventory -->
+        <div
+          class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow"
+        >
+          <div class="flex items-center mb-3">
+            <span class="text-2xl mr-2">📦</span>
+            <h4 class="font-semibold text-gray-800 dark:text-gray-200">
+              Inventory Status
+            </h4>
+          </div>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            Current stock levels (Materials & Blocks)
+          </p>
+          <div class="flex gap-2">
+            <a
+              href="/erp/export/inventory/"
+              class="px-3 py-1.5 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 transition-colors"
+              >Excel</a
+            >
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function applyDateFilters() {
+    const startDate = document.getElementById("start_date").value;
+    const endDate = document.getElementById("end_date").value;
+
+    if (!startDate || !endDate) {
+      alert("Please select both start and end dates.");
+      return;
+    }
+
+    if (startDate > endDate) {
+      alert("Start date cannot be after end date.");
+      return;
+    }
+
+    // Update all export links with date parameters
+    document.querySelectorAll("a.export-link").forEach((link) => {
+      const url = new URL(link.href, window.location.origin);
+      url.searchParams.set("start_date", startDate);
+      url.searchParams.set("end_date", endDate);
+      link.href = url.toString();
+    });
+
+    // Show confirmation
+    document.getElementById(
+      "date_status"
+    ).textContent = `✓ Dates applied: ${startDate} to ${endDate}`;
+  }
+
+  function clearDateFilters() {
+    document.getElementById("start_date").value = "";
+    document.getElementById("end_date").value = "";
+
+    // Reset all export links to default (no date params)
+    document.querySelectorAll("a.export-link").forEach((link) => {
+      const url = new URL(link.href, window.location.origin);
+      url.searchParams.delete("start_date");
+      url.searchParams.delete("end_date");
+      link.href = url.toString();
+    });
+
+    document.getElementById("date_status").textContent =
+      "Dates cleared. Using current month.";
+    setTimeout(() => {
+      document.getElementById("date_status").textContent = "";
+    }, 3000);
+  }
+</script>
+{% endblock %}
