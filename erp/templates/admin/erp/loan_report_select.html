@@ -1,0 +1,40 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<div style="max-width: 500px; margin: 40px auto; padding: 30px; background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+    <h2 style="color: #254451; margin-bottom: 20px; text-align: center;">📊 {{ title }}</h2>
+    
+    <form method="post">
+        {% csrf_token %}
+        
+        <div style="margin-bottom: 20px;">
+            <label style="display: block; font-weight: bold; margin-bottom: 5px; color: #254451;">Start Date:</label>
+            <input type="date" name="start_date" value="{{ default_start }}" 
+                   style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px;">
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+            <label style="display: block; font-weight: bold; margin-bottom: 5px; color: #254451;">End Date:</label>
+            <input type="date" name="end_date" value="{{ today }}" 
+                   style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px;">
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+            <label style="display: block; font-weight: bold; margin-bottom: 5px; color: #254451;">Export Format:</label>
+            <select name="export_type" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px;">
+                <option value="pdf">PDF Report</option>
+                <option value="excel">Excel Spreadsheet</option>
+            </select>
+        </div>
+        
+        <button type="submit" style="width: 100%; padding: 12px; background: #254451; color: white; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; cursor: pointer;">
+            Generate Report
+        </button>
+    </form>
+    
+    <p style="text-align: center; margin-top: 20px;">
+        <a href="{% url 'admin:erp_loan_changelist' %}" style="color: #D4AF37;">← Back to Loans</a>
+    </p>
+</div>
+{% endblock %}

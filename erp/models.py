@@ -8,7 +8,7 @@ from django.core.exceptions import ValidationError
 
 
 # ==============================================================================
-# Day 2: Authentication
+# 1. Authentication
 # ==============================================================================
 
 class User(AbstractUser):
@@ -18,6 +18,7 @@ class User(AbstractUser):
         ('SUPPLY', 'Supply Manager'),
         ('SITE', 'Site Manager'),
         ('SALES', 'Sales Representative'),
+        ('TRANSPORT', 'Transport Manager'),
     ]
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='SALES')
 
@@ -35,25 +36,30 @@ class User(AbstractUser):
     @property
     def can_delete(self):
         return self.role == 'ADMIN'
+    
+    @property
+    def is_transport_only(self):
+        return self.role == 'TRANSPORT'
 
 
 # ==============================================================================
-# Day 3: Materials & Constants
+# 2. Materials & Constants
 # ==============================================================================
 
 class Material(models.Model):
-    """Raw materials inventory tracking."""
     NAME_CHOICES = [
         ('CEMENT', 'Cement (Bags)'),
         ('SHARP_SAND', 'Sharp Sand (Tons)'),
         ('BLACK_SAND', 'Black Sand (Tons)'),
         ('DIESEL', 'Diesel (Liters)'),
         ('STONE_DUST', 'Stone Dust (Tons)'),
+        ('WATER', 'Water (Liters)'),
     ]
     name = models.CharField(max_length=20, choices=NAME_CHOICES, unique=True)
-    unit_price = models.DecimalField(max_digits=10, decimal_places=2, help_text="Current cost per unit")
-    current_stock = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Current quantity available")
-    low_stock_threshold = models.DecimalField(max_digits=10, decimal_places=2, default=10.0, help_text="Alert when stock falls below this")
+    is_inventory_tracked = models.BooleanField(default=True)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    current_stock = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    low_stock_threshold = models.DecimalField(max_digits=10, decimal_places=2, default=10.0)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -63,57 +69,48 @@ class Material(models.Model):
 
     @property
     def is_low_stock(self):
+        if not self.is_inventory_tracked: return False
         return self.current_stock <= self.low_stock_threshold
 
 
 class BlockType(models.Model):
-    """Block products, recipes, and inventory."""
     name = models.CharField(max_length=50)
     selling_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    current_stock = models.IntegerField(default=0)
+    low_stock_threshold = models.IntegerField(default=500)
+    
+    # Financials (COGS)
+    weighted_average_cost = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'), editable=False)
 
-    # Finished Goods Inventory
-    current_stock = models.IntegerField(default=0, help_text="Blocks ready for sale")
-    low_stock_threshold = models.IntegerField(default=500, help_text="Alert when stock falls below this")
+    # Recipe
+    blocks_per_bag = models.IntegerField(default=0)
+    sand_ratio = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    batch_size = models.IntegerField(default=1350)
 
-    # Production Recipe (set to 0 for non-produced items like Half Blocks)
-    blocks_per_bag = models.IntegerField(default=0, help_text="Expected blocks from 1 bag of cement (0 for non-produced items)")
-    sand_ratio = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="Tons of sharp sand per batch")
-    batch_size = models.IntegerField(default=1350, help_text="Batch size for sand ratio")
-
-    # Variable Costs (per block)
+    # Costs
     operator_rate = models.DecimalField(max_digits=10, decimal_places=2, default=35.00)
     loader_rate = models.DecimalField(max_digits=10, decimal_places=2, default=9.00)
     stacking_rate = models.DecimalField(max_digits=10, decimal_places=2, default=5.00)
     logistics_rate = models.DecimalField(max_digits=10, decimal_places=2, default=65.00)
 
-    # Flag for special block types
-    is_half_block = models.BooleanField(default=False, help_text="Is this a half/broken block type?")
-
+    is_half_block = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.name} ({self.current_stock} in stock)"
+        return f"{self.name} ({self.current_stock})"
 
     @property
     def total_variable_rate(self):
         return self.operator_rate + self.loader_rate + self.stacking_rate + self.logistics_rate
 
     @property
-    def labor_rate(self):
-        return self.operator_rate + self.loader_rate + self.stacking_rate
-
-    @property
     def is_low_stock(self):
         return self.current_stock <= self.low_stock_threshold
 
-    def get_variable_cost(self, quantity):
-        return quantity * self.total_variable_rate
-
 
 class BusinessRules(models.Model):
-    """Global overhead costs shared across all production."""
     name = models.CharField(max_length=50, default="Standard Production Rates")
     sand_cost = models.DecimalField(max_digits=12, decimal_places=2, default=330000)
     black_sand_cost = models.DecimalField(max_digits=12, decimal_places=2, default=10000)
@@ -135,101 +132,94 @@ class BusinessRules(models.Model):
         obj, created = cls.objects.get_or_create(pk=1)
         return obj
 
-    @property
-    def total_batch_overhead(self):
-        return self.sand_cost + self.black_sand_cost + self.water_base_cost + self.diesel_power_cost + self.miscellaneous_cost
-
     def __str__(self):
-        return f"{self.name} (Updated: {self.updated_at.strftime('%Y-%m-%d') if self.updated_at else 'Never'})"
+        return f"{self.name}"
 
 
 class PaymentAccount(models.Model):
-    """Bank accounts and cash tracking."""
+    ACCOUNT_TYPE_CHOICES = [
+        ('BANK', 'Bank Account'),
+        ('MOBILE', 'Mobile Money'),
+        ('POS', 'POS Terminal'),
+        ('CASH', 'Cash at Hand'),
+    ]
+    BUSINESS_UNIT_CHOICES = [
+        ('BLOCK', 'Jafan Block Industry'),
+        ('TRANSPORT', 'Jafan Transport'),
+    ]
+    
     bank_name = models.CharField(max_length=50)
     account_number = models.CharField(max_length=20, blank=True, null=True)
-    account_name = models.CharField(max_length=100, default="Jafan Standard Block Ind")
+    account_name = models.CharField(max_length=100, default="GC Okoli Enterprises")
+    account_type = models.CharField(max_length=10, choices=ACCOUNT_TYPE_CHOICES, default='BANK')
+    business_unit = models.CharField(max_length=20, choices=BUSINESS_UNIT_CHOICES, default='BLOCK')
+    
+    opening_balance = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    current_balance = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    
+    last_audit_date = models.DateField(null=True, blank=True)
+    last_audit_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    last_audit_notes = models.TextField(blank=True, null=True)
+    
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        ordering = ['business_unit', 'bank_name']
+
     def __str__(self):
-        return f"{self.bank_name} - {self.account_number}"
+        return f"{self.bank_name} - {self.business_unit}"
+    
+    @property
+    def balance_display(self):
+        return f"₦{self.current_balance:,.2f}"
+
+    @property
+    def audit_variance(self):
+        if self.last_audit_balance is not None:
+            return self.current_balance - self.last_audit_balance
+        return None
 
 
 # ==============================================================================
-# Day 4: Teams, Machines, Customers, Employees
+# 3. People & Structure
 # ==============================================================================
 
 class Team(models.Model):
-    """Production Teams (e.g., Team A, Team B)."""
     name = models.CharField(max_length=50, unique=True)
     description = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        ordering = ['name']
-
     def __str__(self):
         return self.name
 
 
 class Machine(models.Model):
-    """Block Producing Machines."""
-    MACHINE_TYPE_CHOICES = [
-        ('BLOCK', 'Block Machine'),
-        ('MIXER', 'Mixer'),
-        ('GENERATOR', 'Generator'),
-        ('OTHER', 'Other'),
-    ]
-
-    STATUS_CHOICES = [
-        ('OPERATIONAL', 'Operational'),
-        ('MAINTENANCE', 'Under Maintenance'),
-        ('DOWN', 'Down/Broken'),
-    ]
-
     name = models.CharField(max_length=50, unique=True)
-    machine_type = models.CharField(max_length=20, choices=MACHINE_TYPE_CHOICES, default='BLOCK')
-    assigned_team = models.ForeignKey(Team, on_delete=models.SET_NULL, null=True, blank=True, related_name="machines")
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='OPERATIONAL')
-    notes = models.TextField(blank=True, null=True)
+    machine_type = models.CharField(max_length=20, choices=[('BLOCK', 'Block Machine'), ('MIXER', 'Mixer'), ('GENERATOR', 'Generator'), ('OTHER', 'Other')], default='BLOCK')
+    assigned_team = models.ForeignKey(Team, on_delete=models.SET_NULL, null=True, blank=True)
+    status = models.CharField(max_length=20, default='OPERATIONAL')
+    notes = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['name']
 
     def __str__(self):
         return f"{self.name} ({self.get_machine_type_display()})"
 
 
 class Customer(models.Model):
-    """Customer database for sales and delivery tracking."""
-    CUSTOMER_TYPE_CHOICES = [
-        ('ENGINEER', 'Engineer'),
-        ('DEVELOPER', 'Developer'),
-        ('CONTRACTOR', 'Contractor'),
-        ('INDIVIDUAL', 'Individual'),
-        ('OTHER', 'Other'),
-    ]
-
     name = models.CharField(max_length=100)
     phone = models.CharField(max_length=20, unique=True)
     email = models.EmailField(blank=True, null=True)
-    office_address = models.TextField(blank=True, null=True, help_text="Main office or billing address")
-    customer_type = models.CharField(max_length=20, choices=CUSTOMER_TYPE_CHOICES, default='INDIVIDUAL')
-
-    account_balance = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        default=0.00,
-        help_text="Positive = Credit (we owe blocks), Negative = Debit (they owe money)"
-    )
-
-    notes = models.TextField(blank=True, null=True)
+    office_address = models.TextField(blank=True, null=True)
+    customer_type = models.CharField(max_length=20, default='INDIVIDUAL')
+    account_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    credit_limit = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    notes = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -246,24 +236,19 @@ class Customer(models.Model):
 
     @property
     def balance_status(self):
-        if self.account_balance > 0:
-            return "Credit"
-        elif self.account_balance < 0:
-            return "Owes"
+        if self.account_balance > 0: return "Credit"
+        elif self.account_balance < 0: return "Owes"
         return "Settled"
 
 
 class Site(models.Model):
-    """Multiple delivery sites per customer."""
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='sites')
-    name = models.CharField(max_length=100, help_text="e.g., GRA Phase 2, UniAgric Site")
-    address = models.TextField(help_text="Full delivery address for driver")
-    contact_person = models.CharField(max_length=100, blank=True, null=True, help_text="On-site contact if different")
-    contact_phone = models.CharField(max_length=20, blank=True, null=True)
-
-    is_outside_town = models.BooleanField(default=False, help_text="Attracts outside town surcharge?")
-    blocks_owed = models.IntegerField(default=0, help_text="Paid but undelivered blocks for this site")
-
+    name = models.CharField(max_length=100)
+    address = models.TextField()
+    contact_person = models.CharField(max_length=100, blank=True)
+    contact_phone = models.CharField(max_length=20, blank=True)
+    is_outside_town = models.BooleanField(default=False)
+    blocks_owed = models.IntegerField(default=0)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -276,206 +261,111 @@ class Site(models.Model):
 
 
 class Employee(models.Model):
-    """Employee database for production and logistics."""
-    ROLE_CHOICES = [
-        ('OPERATOR', 'Machine Operator'),
-        ('LOADER', 'Loader'),
-        ('DRIVER', 'Driver'),
-        ('MIXER', 'Mixer'),
-        ('STACKER', 'Stacker'),
-        ('CARRIER', 'Carrier'),
-        ('MANAGER', 'Manager'),
-        ('SALES', 'Sales Staff'),
-        ('SECURITY', 'Security'),
-        ('OTHER', 'Other'),
-    ]
-
-    PAY_TYPE_CHOICES = [
-        ('DAILY', 'Daily'),
-        ('WEEKLY', 'Weekly'),
-        ('MONTHLY', 'Monthly'),
-    ]
-
     name = models.CharField(max_length=100)
-    phone = models.CharField(max_length=20, blank=True, null=True)
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
-    team = models.ForeignKey(Team, on_delete=models.SET_NULL, null=True, blank=True, related_name="members")
-    pay_type = models.CharField(max_length=10, choices=PAY_TYPE_CHOICES, default='WEEKLY')
-
-    current_balance = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=0.00,
-        help_text="Negative = owes company (loan), Positive = company owes them"
-    )
-
+    phone = models.CharField(max_length=20, blank=True)
+    role = models.CharField(max_length=20)
+    team = models.ForeignKey(Team, on_delete=models.SET_NULL, null=True, blank=True)
+    pay_type = models.CharField(max_length=10, default='WEEKLY')
+    current_balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        ordering = ['name']
-
     def __str__(self):
-        return f"{self.name} ({self.get_role_display()})"
+        return f"{self.name}"
 
 
 # ==============================================================================
-# Day 5: Vendors & Trucks
+# 4. Logistics
 # ==============================================================================
 
 class Vendor(models.Model):
-    """Suppliers for cement, sand, fuel, etc."""
-    SUPPLY_TYPE_CHOICES = [
-        ('CEMENT', 'Cement'),
-        ('SHARP_SAND', 'Sharp Sand'),
-        ('BLACK_SAND', 'Black Sand'),
-        ('FUEL', 'Fuel/Diesel'),
-        ('MAINTENANCE', 'Maintenance/Repairs'),
-        ('OTHER', 'Other'),
-    ]
-
     name = models.CharField(max_length=100)
-    phone = models.CharField(max_length=20, blank=True, null=True)
-    address = models.TextField(blank=True, null=True)
-    supply_type = models.CharField(max_length=20, choices=SUPPLY_TYPE_CHOICES, default='OTHER')
+    is_internal = models.BooleanField(default=False)
+    phone = models.CharField(max_length=20, blank=True)
+    address = models.TextField(blank=True)
+    supply_type = models.CharField(max_length=20, default='OTHER')
+    account_balance = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        ordering = ['name']
-
     def __str__(self):
-        return f"{self.name} ({self.get_supply_type_display()})"
+        return f"{self.name}"
+    
+    @property
+    def balance_status(self):
+        if self.account_balance > 0: return "We Owe"
+        elif self.account_balance < 0: return "They Owe"
+        return "Settled"
 
 
 class Truck(models.Model):
-    """Fleet management with fuel benchmarks."""
-    STATUS_CHOICES = [
-        ('AVAILABLE', 'Available'),
-        ('ON_DELIVERY', 'On Delivery'),
-        ('MAINTENANCE', 'Under Maintenance'),
-    ]
-
-    FUEL_CHOICES = [
-        ('DIESEL', 'Diesel'),
-        ('PETROL', 'Petrol'),
-    ]
-
-    name = models.CharField(max_length=50, unique=True, help_text="e.g., Truck A, Tipper 1")
-    plate_number = models.CharField(max_length=20, blank=True, null=True)
-    driver = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_trucks", limit_choices_to={'role': 'DRIVER'})
-
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='AVAILABLE')
-
-    fuel_type = models.CharField(max_length=10, choices=FUEL_CHOICES, default='DIESEL')
-    fuel_capacity = models.DecimalField(max_digits=5, decimal_places=2, default=0.00, help_text="Tank capacity (Liters)")
-    
-    # Efficiency Benchmarks (Used for Transport Analytics)
-    benchmark_fuel = models.DecimalField(max_digits=5, decimal_places=2, default=30.00, help_text="Benchmark liters per cycle")
-    expected_trips = models.IntegerField(default=8, help_text="Expected trips per benchmark fuel")
-
+    name = models.CharField(max_length=50, unique=True)
+    plate_number = models.CharField(max_length=20, blank=True)
+    truck_type = models.CharField(max_length=20, default='BLOCK')
+    driver = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True, limit_choices_to={'role': 'DRIVER'})
+    status = models.CharField(max_length=20, default='AVAILABLE')
+    fuel_type = models.CharField(max_length=10, default='DIESEL')
+    fuel_capacity = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    benchmark_fuel = models.DecimalField(max_digits=5, decimal_places=2, default=30.00)
+    expected_trips = models.IntegerField(default=8)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        ordering = ['name']
-
     def __str__(self):
-        driver_name = self.driver.name if self.driver else "No Driver"
-        return f"{self.name} ({driver_name})"
+        return f"{self.name}"
 
-
-# ==============================================================================
-# Day 9: Expenses Module (MUST BE BEFORE ProcurementLog for Auto-Sync)
-# ==============================================================================
 
 class ExpenseCategory(models.Model):
-    """Categories for expense tracking - User-defined and flexible."""
     name = models.CharField(max_length=50, unique=True)
-    description = models.TextField(blank=True, null=True)
+    description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    class Meta:
-        verbose_name = "Expense Category"
-        verbose_name_plural = "Expense Categories"
-        ordering = ['name']
+    def __str__(self):
+        return self.name
+
+
+class TransportAsset(models.Model):
+    name = models.CharField(max_length=50, unique=True)
+    asset_type = models.CharField(max_length=20, default='BIKE')
+    plate_number = models.CharField(max_length=20, blank=True)
+    assigned_to = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True)
+    fuel_type = models.CharField(max_length=10, default='PETROL')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.name
 
 
 class Expense(models.Model):
-    """
-    The Unified Cost Ledger - Single Source of Truth for ALL money leaving the company.
-    This includes both manual expenses AND auto-synced procurement costs.
-    """
     date = models.DateField(default=timezone.now)
-    category = models.ForeignKey(ExpenseCategory, on_delete=models.PROTECT, related_name='expenses')
-    description = models.CharField(max_length=200, help_text="Brief description of expense")
+    category = models.ForeignKey(ExpenseCategory, on_delete=models.PROTECT)
+    description = models.CharField(max_length=200)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
+    business_unit = models.CharField(max_length=20, default='BLOCK')
+    
+    is_paid = models.BooleanField(default=True)
+    payment_date = models.DateField(null=True, blank=True)
+    payment_account = models.ForeignKey(PaymentAccount, on_delete=models.SET_NULL, null=True, blank=True)
 
-    # Payment details
-    payment_account = models.ForeignKey(
-        PaymentAccount,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Account used for payment"
-    )
+    vendor = models.ForeignKey(Vendor, on_delete=models.SET_NULL, null=True, blank=True)
+    truck = models.ForeignKey(Truck, on_delete=models.SET_NULL, null=True, blank=True)
+    machine = models.ForeignKey(Machine, on_delete=models.SET_NULL, null=True, blank=True)
+    employee = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True)
+    transport_asset = models.ForeignKey(TransportAsset, on_delete=models.SET_NULL, null=True, blank=True)
+    driver = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='driver_expenses')
 
-    # Optional links for specific expense types
-    vendor = models.ForeignKey(
-        Vendor,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Vendor if applicable"
-    )
-    truck = models.ForeignKey(
-        Truck,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Truck if vehicle-related expense"
-    )
-    machine = models.ForeignKey(
-        Machine,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Machine if equipment-related expense"
-    )
-    employee = models.ForeignKey(
-        Employee,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Employee if salary/advance/allowance"
-    )
-
-    # Documentation
-    receipt_number = models.CharField(max_length=50, blank=True, null=True, help_text="Receipt or invoice number")
-    notes = models.TextField(blank=True, null=True)
-
-    # Auto-sync flag (to identify auto-created entries)
-    is_auto_synced = models.BooleanField(default=False, editable=False, help_text="True if auto-created from Procurement")
-
-    # Approval (optional - for large expenses)
+    receipt_number = models.CharField(max_length=50, blank=True, null=True)
+    notes = models.TextField(blank=True)
+    is_auto_synced = models.BooleanField(default=False, editable=False)
     requires_approval = models.BooleanField(default=False)
-    approved_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='approved_expenses',
-        limit_choices_to={'role__in': ['ADMIN', 'GM']}
-    )
-
-    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False, related_name='recorded_expenses')
+    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_expenses')
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -483,37 +373,59 @@ class Expense(models.Model):
         ordering = ['-date', '-created_at']
 
     def __str__(self):
-        return f"{self.date} | {self.category.name} | ₦{self.amount:,.2f} | {self.description[:30]}"
+        return f"{self.date} | {self.category.name} | ₦{self.amount:,.2f}"
 
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_edit = self.pk is not None
+        if is_edit:
+            old = Expense.objects.select_for_update().get(pk=self.pk)
+            # Reverse Old Financials
+            if old.is_paid and old.payment_account:
+                PaymentAccount.objects.filter(pk=old.payment_account.pk).update(current_balance=F('current_balance') + old.amount)
+            if old.vendor and not old.is_paid:
+                Vendor.objects.filter(pk=old.vendor.pk).update(account_balance=F('account_balance') - old.amount)
+            elif old.vendor and old.is_paid:
+                # If paid, reverting doesn't inherently change vendor balance, assumes expense logic
+                pass 
 
-# ==============================================================================
-# Day 5 (continued): Procurement with Auto-Sync to Expense
-# ==============================================================================
+        if self.truck or self.transport_asset: self.business_unit = 'TRANSPORT'
+        elif self.machine: self.business_unit = 'BLOCK'
+        if self.is_paid and not self.payment_date: self.payment_date = self.date
+        
+        super().save(*args, **kwargs)
+        
+        # Apply New Financials
+        if self.is_paid and self.payment_account:
+            PaymentAccount.objects.filter(pk=self.payment_account.pk).update(current_balance=F('current_balance') - self.amount)
+        
+        if self.vendor and not self.is_paid:
+            Vendor.objects.filter(pk=self.vendor.pk).update(account_balance=F('account_balance') + self.amount)
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        if self.is_paid and self.payment_account:
+            PaymentAccount.objects.filter(pk=self.payment_account.pk).update(current_balance=F('current_balance') + self.amount)
+        if self.vendor and not self.is_paid:
+            Vendor.objects.filter(pk=self.vendor.pk).update(account_balance=F('account_balance') - self.amount)
+        super().delete(*args, **kwargs)
+
 
 class ProcurementLog(models.Model):
-    """
-    Log purchases - auto-updates material stock AND auto-syncs to Expense ledger.
-    This is the HYBRID approach: Procurement for stock tracking, Expense for cost tracking.
-    """
     date = models.DateField()
     vendor = models.ForeignKey(Vendor, on_delete=models.SET_NULL, null=True, blank=True)
     material = models.ForeignKey(Material, on_delete=models.PROTECT)
-    quantity = models.DecimalField(max_digits=10, decimal_places=2, help_text="Amount purchased (bags, tons, liters)")
-    total_cost = models.DecimalField(max_digits=12, decimal_places=2, help_text="Total amount paid")
-    unit_price = models.DecimalField(max_digits=10, decimal_places=2, editable=False, default=0, help_text="Auto-calculated: total_cost / quantity")
+    quantity = models.DecimalField(max_digits=10, decimal_places=2)
+    total_cost = models.DecimalField(max_digits=12, decimal_places=2)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, editable=False, default=0)
 
     payment_account = models.ForeignKey(PaymentAccount, on_delete=models.SET_NULL, null=True, blank=True)
+    is_internal_haulage = models.BooleanField(default=False)
+    delivery_truck = models.ForeignKey(Truck, on_delete=models.SET_NULL, null=True, blank=True)
+    haulage_fee = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
 
-    # THE AUTO-SYNC LINK - OneToOne relationship to Expense
-    expense_entry = models.OneToOneField(
-        Expense,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        editable=False,
-        related_name='procurement_source',
-        help_text="Auto-created expense entry"
-    )
+    is_paid = models.BooleanField(default=True)
+    # REMOVED: expense_entry field - no longer linking to Expense
 
     remark = models.TextField(blank=True, null=True)
     recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
@@ -522,100 +434,118 @@ class ProcurementLog(models.Model):
     class Meta:
         ordering = ['-date', '-created_at']
 
+    def __str__(self):
+        return f"{self.date} - {self.material.name} ({self.quantity})"
+
     @transaction.atomic
     def save(self, *args, **kwargs):
-        # 1. Calculate Unit Price
+        is_edit = self.pk is not None
+        if is_edit:
+            old = ProcurementLog.objects.select_for_update().get(pk=self.pk)
+            # Reverse Stock
+            Material.objects.filter(pk=old.material.pk).update(
+                current_stock=F('current_stock') - old.quantity
+            )
+            # Reverse Vendor Balance (if was credit)
+            if not old.is_paid and old.vendor:
+                Vendor.objects.filter(pk=old.vendor.pk).update(
+                    account_balance=F('account_balance') - old.total_cost
+                )
+            # Reverse Payment Account (if was paid)
+            if old.is_paid and old.payment_account:
+                PaymentAccount.objects.filter(pk=old.payment_account.pk).update(
+                    current_balance=F('current_balance') + old.total_cost
+                )
+            # Reverse Internal Haulage Credit
+            if old.is_internal_haulage and old.haulage_fee > 0:
+                t_vendor = Vendor.objects.filter(is_internal=True, supply_type='TRANSPORT').first()
+                if t_vendor:
+                    Vendor.objects.filter(pk=t_vendor.pk).update(
+                        account_balance=F('account_balance') - old.haulage_fee
+                    )
+
+        # Calculate unit price
         if self.quantity > 0:
             self.unit_price = self.total_cost / self.quantity
 
-        # 2. Get old quantity for stock diff calculation
-        old_qty = Decimal('0')
-        if self.pk:
-            try:
-                old_log = ProcurementLog.objects.get(pk=self.pk)
-                old_qty = old_log.quantity
-            except ProcurementLog.DoesNotExist:
-                pass
-
-        # 3. AUTO-SYNC WITH EXPENSE LEDGER (The Hybrid Superior Logic)
-        raw_material_cat, _ = ExpenseCategory.objects.get_or_create(
-            name="Raw Materials",
-            defaults={'description': 'Auto-created for procurement sync'}
-        )
-
-        vendor_name = self.vendor.name if self.vendor else "Unknown Vendor"
-        expense_description = f"Auto-Log: {self.quantity} {self.material.get_name_display()} from {vendor_name}"
-
-        if not self.expense_entry:
-            self.expense_entry = Expense.objects.create(
-                date=self.date,
-                category=raw_material_cat,
-                description=expense_description,
-                amount=self.total_cost,
-                payment_account=self.payment_account,
-                vendor=self.vendor,
-                is_auto_synced=True,
-                recorded_by=self.recorded_by
-            )
-        else:
-            self.expense_entry.date = self.date
-            self.expense_entry.amount = self.total_cost
-            self.expense_entry.payment_account = self.payment_account
-            self.expense_entry.vendor = self.vendor
-            self.expense_entry.description = expense_description
-            self.expense_entry.save()
-
-        # 4. Save ProcurementLog
         super().save(*args, **kwargs)
 
-        # 5. Update Material Stock using F() - RACE CONDITION SAFE
-        diff = self.quantity - old_qty
-        if diff != 0:
-            Material.objects.filter(pk=self.material.pk).update(
-                current_stock=F('current_stock') + diff
+        # Apply New Stock
+        Material.objects.filter(pk=self.material.pk).update(
+            current_stock=F('current_stock') + self.quantity
+        )
+        # Update material unit price
+        Material.objects.filter(pk=self.material.pk).update(unit_price=self.unit_price)
+
+        # Apply Vendor Balance (if credit purchase)
+        if not self.is_paid and self.vendor:
+            Vendor.objects.filter(pk=self.vendor.pk).update(
+                account_balance=F('account_balance') + self.total_cost
             )
-            self.material.refresh_from_db()
+        
+        # Apply Payment Account (if paid)
+        if self.is_paid and self.payment_account:
+            PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+                current_balance=F('current_balance') - self.total_cost
+            )
+
+        # Apply Internal Haulage
+        if self.is_internal_haulage and self.haulage_fee > 0:
+            t_vendor = Vendor.objects.filter(is_internal=True, supply_type='TRANSPORT').first()
+            if t_vendor:
+                Vendor.objects.filter(pk=t_vendor.pk).update(
+                    account_balance=F('account_balance') + self.haulage_fee
+                )
 
     @transaction.atomic
     def delete(self, *args, **kwargs):
-        # Reverse material stock using F()
+        # Reverse Stock
         Material.objects.filter(pk=self.material.pk).update(
             current_stock=F('current_stock') - self.quantity
         )
-
-        # Delete the linked Expense entry
-        if self.expense_entry:
-            self.expense_entry.delete()
-
+        # Reverse Vendor Balance (if credit)
+        if not self.is_paid and self.vendor:
+            Vendor.objects.filter(pk=self.vendor.pk).update(
+                account_balance=F('account_balance') - self.total_cost
+            )
+        # Reverse Payment Account (if paid)
+        if self.is_paid and self.payment_account:
+            PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+                current_balance=F('current_balance') + self.total_cost
+            )
+        # Reverse Internal Haulage
+        if self.is_internal_haulage and self.haulage_fee > 0:
+            t_vendor = Vendor.objects.filter(is_internal=True, supply_type='TRANSPORT').first()
+            if t_vendor:
+                Vendor.objects.filter(pk=t_vendor.pk).update(
+                    account_balance=F('account_balance') - self.haulage_fee
+                )
         super().delete(*args, **kwargs)
-
-    def __str__(self):
-        return f"{self.date} - {self.material.name} (+{self.quantity})"
 
 
 # ==============================================================================
-# Day 6: Production Module
+# 5. Production
 # ==============================================================================
 
 class ProductionLog(models.Model):
-    """
-    Daily production record.
-    Manual entry: cement used, black sand used
-    Auto-calculates: sharp sand used, labor cost
-    Auto-updates: block stock (add), material stock (subtract)
-    """
     date = models.DateField()
     team = models.ForeignKey(Team, on_delete=models.PROTECT)
     machine = models.ForeignKey(Machine, on_delete=models.PROTECT, limit_choices_to={'machine_type': 'BLOCK'})
     block_type = models.ForeignKey(BlockType, on_delete=models.PROTECT)
-    quantity_produced = models.PositiveIntegerField(help_text="Number of blocks produced")
-    breakages = models.PositiveIntegerField(default=0, help_text="Blocks broken during production")
+    quantity_produced = models.PositiveIntegerField()
+    breakages = models.PositiveIntegerField(default=0)
 
-    cement_used = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Bags of cement used")
-    black_sand_used = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Tons of black sand used")
-
-    sharp_sand_used = models.DecimalField(max_digits=10, decimal_places=2, editable=False, default=0, help_text="Auto-calculated from recipe")
+    # Material Usage
+    cement_used = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Manual entry: Bags used")
+    black_sand_used = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Manual entry: Tons used")
+    
+    # Auto-Calculated Fields
+    sharp_sand_used = models.DecimalField(max_digits=10, decimal_places=2, editable=False, default=0)
+    
+    # Financials
+    team_pay = models.DecimalField(max_digits=12, decimal_places=2, editable=False, default=0, help_text="Operator's specific cut")
     labor_cost = models.DecimalField(max_digits=12, decimal_places=2, editable=False, default=0)
+    unit_cost = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'), editable=False)
 
     notes = models.TextField(blank=True, null=True)
     recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
@@ -624,212 +554,114 @@ class ProductionLog(models.Model):
     class Meta:
         ordering = ['-date', '-created_at']
 
-    @transaction.atomic
-    def save(self, *args, **kwargs):
-        old_qty = 0
-        old_cement = Decimal('0')
-        old_black_sand = Decimal('0')
-        old_sharp_sand = Decimal('0')
-
-        if self.pk:
-            old_log = ProductionLog.objects.get(pk=self.pk)
-            old_qty = old_log.quantity_produced
-            old_cement = old_log.cement_used
-            old_black_sand = old_log.black_sand_used
-            old_sharp_sand = old_log.sharp_sand_used
-
-        # Calculate sharp sand from recipe
-        if self.block_type.batch_size > 0:
-            batches = Decimal(self.quantity_produced) / Decimal(self.block_type.batch_size)
-            self.sharp_sand_used = batches * self.block_type.sand_ratio
-
-        # Calculate labor cost
-        labor_rate = self.block_type.operator_rate + self.block_type.loader_rate + self.block_type.stacking_rate
-        self.labor_cost = Decimal(self.quantity_produced) * labor_rate
-
-        super().save(*args, **kwargs)
-
-        # Update block stock using F() - RACE CONDITION SAFE
-        stock_diff = self.quantity_produced - old_qty
-        if stock_diff != 0:
-            BlockType.objects.filter(pk=self.block_type.pk).update(
-                current_stock=F('current_stock') + stock_diff
-            )
-            self.block_type.refresh_from_db()
-
-        # Update material stocks using F() - RACE CONDITION SAFE
-        cement_diff = self.cement_used - old_cement
-        if cement_diff != 0:
-            Material.objects.filter(name='CEMENT').update(
-                current_stock=F('current_stock') - cement_diff
-            )
-
-        black_sand_diff = self.black_sand_used - old_black_sand
-        if black_sand_diff != 0:
-            Material.objects.filter(name='BLACK_SAND').update(
-                current_stock=F('current_stock') - black_sand_diff
-            )
-
-        sharp_sand_diff = self.sharp_sand_used - old_sharp_sand
-        if sharp_sand_diff != 0:
-            Material.objects.filter(name='SHARP_SAND').update(
-                current_stock=F('current_stock') - sharp_sand_diff
-            )
-
-    @transaction.atomic
-    def delete(self, *args, **kwargs):
-        # Reverse block stock using F()
-        BlockType.objects.filter(pk=self.block_type.pk).update(
-            current_stock=F('current_stock') - self.quantity_produced
-        )
-
-        # Reverse material stocks using F()
-        Material.objects.filter(name='CEMENT').update(
-            current_stock=F('current_stock') + self.cement_used
-        )
-        Material.objects.filter(name='BLACK_SAND').update(
-            current_stock=F('current_stock') + self.black_sand_used
-        )
-        Material.objects.filter(name='SHARP_SAND').update(
-            current_stock=F('current_stock') + self.sharp_sand_used
-        )
-
-        super().delete(*args, **kwargs)
-
     def __str__(self):
         return f"{self.date}: {self.block_type.name} (+{self.quantity_produced})"
 
-
-# ==============================================================================
-# Day 7: The Ledger System (Payments, Sales Orders & Supplies)
-# ==============================================================================
-
-class Payment(models.Model):
-    """
-    Money In.
-    Action: INCREASES Customer Balance (Credit).
-    """
-    PAYMENT_METHOD_CHOICES = [
-        ('TRANSFER', 'Bank Transfer'),
-        ('CASH', 'Cash'),
-        ('POS', 'POS Terminal'),
-        ('CHEQUE', 'Cheque'),
-    ]
-
-    customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name='payments')
-    date = models.DateField(default=timezone.now)
-    amount = models.DecimalField(max_digits=12, decimal_places=2, help_text="Amount received")
-    method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES, default='TRANSFER')
-    payment_account = models.ForeignKey(PaymentAccount, on_delete=models.SET_NULL, null=True, blank=True, help_text="Which account received the money?")
-    reference = models.CharField(max_length=100, blank=True, null=True, help_text="Bank Ref / Teller No / Receipt No")
-
-    remark = models.TextField(blank=True, null=True)
-    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['-date', '-created_at']
-
     @transaction.atomic
     def save(self, *args, **kwargs):
-        is_new = self.pk is None
-        old_amount = Decimal('0')
+        is_edit = self.pk is not None
+        if is_edit:
+            old = ProductionLog.objects.select_for_update().get(pk=self.pk)
+            # Reverse Inventory Effects
+            BlockType.objects.filter(pk=old.block_type.pk).update(current_stock=F('current_stock') - old.quantity_produced)
+            Material.objects.filter(name='CEMENT').update(current_stock=F('current_stock') + old.cement_used)
+            Material.objects.filter(name='BLACK_SAND').update(current_stock=F('current_stock') + old.black_sand_used)
+            Material.objects.filter(name='SHARP_SAND').update(current_stock=F('current_stock') + old.sharp_sand_used)
+
+        # 1. Calculate Sharp Sand (Only if ratio is set)
+        if self.block_type.batch_size > 0 and self.block_type.sand_ratio > 0:
+            batches = Decimal(self.quantity_produced) / Decimal(self.block_type.batch_size)
+            self.sharp_sand_used = batches * self.block_type.sand_ratio
+        else:
+            self.sharp_sand_used = 0 # Prevent ghost costs if ratio is missing
         
-        if not is_new:
-            old_amount = Payment.objects.get(pk=self.pk).amount
+        # 2. Calculate Team Pay (Operator Only)
+        op_rate = self.block_type.operator_rate
+        qty = Decimal(self.quantity_produced)
+        self.team_pay = op_rate * qty
+
+        # 3. Calculate Total Labor (Now including Logistics)
+        # Formula: Operator + Loader + Stacking + Logistics
+        labor_rate = (
+            self.block_type.operator_rate + 
+            self.block_type.loader_rate + 
+            self.block_type.stacking_rate +
+            self.block_type.logistics_rate # <--- ADDED LOGISTICS
+        )
+        self.labor_cost = Decimal(self.quantity_produced) * labor_rate
+
+        # 4. Calculate Unit Cost
+        try: cement_p = Material.objects.get(name='CEMENT').unit_price
+        except: cement_p = 0
+        try: sand_p = Material.objects.get(name='SHARP_SAND').unit_price
+        except: sand_p = 0
+        try: black_p = Material.objects.get(name='BLACK_SAND').unit_price
+        except: black_p = 0
+        
+        mat_cost = (self.cement_used * cement_p) + (self.sharp_sand_used * sand_p) + (self.black_sand_used * black_p)
+        
+        rules = BusinessRules.get_instance()
+        batches = Decimal(self.quantity_produced) / Decimal(self.block_type.batch_size or 1350)
+        overhead = batches * (rules.diesel_power_cost + rules.water_base_cost + rules.miscellaneous_cost)
+        
+        total_cost = mat_cost + self.labor_cost + overhead
+        if self.quantity_produced > 0:
+            self.unit_cost = total_cost / Decimal(self.quantity_produced)
+
+        # 5. Update Weighted Average Cost (WAC)
+        bt = BlockType.objects.get(pk=self.block_type.pk)
+        current_val = bt.current_stock * bt.weighted_average_cost
+        new_val = self.quantity_produced * self.unit_cost
+        total_qty = bt.current_stock + self.quantity_produced
+        
+        # Only update WAC if adding stock (not if negative/error)
+        if total_qty > 0:
+            new_wac = (current_val + new_val) / total_qty
+            BlockType.objects.filter(pk=self.block_type.pk).update(weighted_average_cost=new_wac)
 
         super().save(*args, **kwargs)
 
-        # Credit customer balance using F() - RACE CONDITION SAFE
-        diff = self.amount - old_amount
-        if diff != 0:
-            Customer.objects.filter(pk=self.customer.pk).update(
-                account_balance=F('account_balance') + diff
-            )
-            self.customer.refresh_from_db()
+        # 6. Apply Inventory Effects
+        BlockType.objects.filter(pk=self.block_type.pk).update(current_stock=F('current_stock') + self.quantity_produced)
+        Material.objects.filter(name='CEMENT').update(current_stock=F('current_stock') - self.cement_used)
+        Material.objects.filter(name='BLACK_SAND').update(current_stock=F('current_stock') - self.black_sand_used)
+        Material.objects.filter(name='SHARP_SAND').update(current_stock=F('current_stock') - self.sharp_sand_used)
 
     @transaction.atomic
     def delete(self, *args, **kwargs):
-        # Reverse customer balance using F()
-        Customer.objects.filter(pk=self.customer.pk).update(
-            account_balance=F('account_balance') - self.amount
-        )
+        # Reverse all inventory changes
+        BlockType.objects.filter(pk=self.block_type.pk).update(current_stock=F('current_stock') - self.quantity_produced)
+        Material.objects.filter(name='CEMENT').update(current_stock=F('current_stock') + self.cement_used)
+        Material.objects.filter(name='BLACK_SAND').update(current_stock=F('current_stock') + self.black_sand_used)
+        Material.objects.filter(name='SHARP_SAND').update(current_stock=F('current_stock') + self.sharp_sand_used)
         super().delete(*args, **kwargs)
 
-    def __str__(self):
-        return f"{self.date} | {self.customer.name} | +₦{self.amount:,.2f}"
 
+# ==============================================================================
+# 6. Sales & Supply
+# ==============================================================================
 
 class SalesOrder(models.Model):
-    """
-    Sales Order / Quotation.
-
-    PRICING:
-    - surcharge_per_block: Added to each block price (e.g., outside town delivery)
-    - discount_per_block: Deducted from each block price
-    - Final price per block = selling_price + surcharge - discount
-    """
-
-    STATUS_CHOICES = [
-        ('PENDING', 'Pending Payment'),
-        ('PARTIAL', 'Partially Supplied'),
-        ('COMPLETED', 'Fully Supplied'),
-        ('CANCELLED', 'Cancelled'),
-    ]
-
+    STATUS_CHOICES = [('PENDING', 'Pending Payment'), ('PARTIAL', 'Partially Supplied'), ('COMPLETED', 'Fully Supplied'), ('CANCELLED', 'Cancelled')]
     date = models.DateField(default=timezone.now)
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name='sales_orders')
     site = models.ForeignKey(Site, on_delete=models.PROTECT)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
-
-    # Per-block pricing adjustments
-    surcharge_per_block = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=Decimal('0.00'),
-        help_text="Amount added PER BLOCK (e.g., ₦50 for outside town delivery)"
-    )
-    discount_per_block = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=Decimal('0.00'),
-        help_text="Amount deducted PER BLOCK (e.g., ₦20 bulk discount)"
-    )
-    discount_reason = models.CharField(
-        max_length=200,
-        blank=True,
-        help_text="Reason for discount (if any)"
-    )
-
-    # Validity for proforma
-    valid_until = models.DateField(
-        null=True,
-        blank=True,
-        help_text="Proforma validity date (auto-set to 14 days if empty)"
-    )
-
+    surcharge_per_block = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    valid_until = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
-    recorded_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name='recorded_orders'
-    )
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='recorded_orders')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-date', '-created_at']
-        verbose_name = "Sales Order"
-        verbose_name_plural = "Sales Orders"
 
     def __str__(self):
-        return f"SO-{self.pk:05d} - {self.customer.name} ({self.get_status_display()})"
+        return f"SO-{self.pk:05d} - {self.customer.name}"
 
     def save(self, *args, **kwargs):
-        # Auto-set validity to 14 days if not set
-        if not self.valid_until:
-            self.valid_until = self.date + timezone.timedelta(days=14)
+        if not self.valid_until: self.valid_until = self.date + timezone.timedelta(days=14)
         super().save(*args, **kwargs)
 
     @property
@@ -843,206 +675,120 @@ class SalesOrder(models.Model):
     @property
     def supply_progress(self):
         total = self.total_quantity_ordered
-        if total == 0:
-            return 0
+        if total == 0: return 0
         return int((self.total_quantity_supplied / total) * 100)
 
     @property
     def total_value(self):
-        """Total order value with surcharge and discount applied."""
         return sum(item.line_total for item in self.items.all())
-
+    
     @property
     def is_valid(self):
-        """Check if proforma is still valid."""
-        if self.valid_until:
-            return timezone.now().date() <= self.valid_until
+        if self.valid_until: return timezone.now().date() <= self.valid_until
         return True
 
 
 class SalesOrderItem(models.Model):
-    """
-    Individual line item in a Sales Order.
-
-    agreed_price is AUTO-CALCULATED:
-    agreed_price = block_type.selling_price + order.surcharge_per_block - order.discount_per_block
-    """
-
     order = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name='items')
     block_type = models.ForeignKey(BlockType, on_delete=models.PROTECT)
     quantity_requested = models.PositiveIntegerField()
-
-    # Auto-calculated from block_type price + order surcharge - order discount
-    agreed_price = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        help_text="Auto-calculated: Block price + surcharge - discount"
-    )
-
-    # Track how much has been supplied
+    agreed_price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity_supplied = models.PositiveIntegerField(default=0)
-
-    class Meta:
-        verbose_name = "Sales Order Item"
-        verbose_name_plural = "Sales Order Items"
+    discount_per_block = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    discount_reason = models.CharField(max_length=200, blank=True)
 
     def __str__(self):
-        return f"{self.quantity_requested} x {self.block_type.name} @ {self.agreed_price}"
+        return f"{self.quantity_requested} x {self.block_type.name}"
 
     def save(self, *args, **kwargs):
-        # Auto-calculate agreed_price from block type + surcharge - discount
-        base_price = self.block_type.selling_price
-        surcharge = self.order.surcharge_per_block if self.order_id else Decimal('0.00')
-        discount = self.order.discount_per_block if self.order_id else Decimal('0.00')
-        self.agreed_price = base_price + surcharge - discount
-
+        base = self.block_type.selling_price
+        self.agreed_price = base - self.discount_per_block
         super().save(*args, **kwargs)
 
     @property
     def line_total(self):
-        """Total value for this line item."""
         return self.quantity_requested * self.agreed_price
 
-    @property
-    def quantity_remaining(self):
-        """Quantity yet to be supplied."""
-        return self.quantity_requested - self.quantity_supplied
+
+class Payment(models.Model):
+    customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name='payments')
+    sales_order = models.ForeignKey(SalesOrder, on_delete=models.SET_NULL, null=True, blank=True, related_name='payments')
+    date = models.DateField(default=timezone.now)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    method = models.CharField(max_length=20, choices=[('TRANSFER', 'Bank Transfer'), ('CASH', 'Cash'), ('POS', 'POS'), ('CHEQUE', 'Cheque')], default='TRANSFER')
+    payment_account = models.ForeignKey(PaymentAccount, on_delete=models.PROTECT)
+    reference = models.CharField(max_length=100, blank=True, null=True)
+    remark = models.TextField(blank=True, null=True)
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+
+    def __str__(self):
+        return f"Payment: ₦{self.amount:,.2f} from {self.customer.name}"
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_edit = self.pk is not None
+        if is_edit:
+            old = Payment.objects.select_for_update().get(pk=self.pk)
+            Customer.objects.filter(pk=old.customer.pk).update(account_balance=F('account_balance') - old.amount)
+            if old.payment_account:
+                PaymentAccount.objects.filter(pk=old.payment_account.pk).update(current_balance=F('current_balance') - old.amount)
+
+        super().save(*args, **kwargs)
+
+        Customer.objects.filter(pk=self.customer.pk).update(account_balance=F('account_balance') + self.amount)
+        if self.payment_account:
+            PaymentAccount.objects.filter(pk=self.payment_account.pk).update(current_balance=F('current_balance') + self.amount)
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        Customer.objects.filter(pk=self.customer.pk).update(account_balance=F('account_balance') - self.amount)
+        if self.payment_account:
+            PaymentAccount.objects.filter(pk=self.payment_account.pk).update(current_balance=F('current_balance') - self.amount)
+        super().delete(*args, **kwargs)
 
 
 class SupplyLog(models.Model):
-    """
-    Records actual delivery/supply of blocks to customers.
-    Links to Sales Orders when applicable.
-
-    unit_price AUTO-POPULATES from:
-    1. SalesOrderItem.agreed_price (if linked to order)
-    2. BlockType.selling_price (if direct supply without order)
-    """
-
-    DELIVERY_TYPE_CHOICES = [
-        ('DELIVERED', 'Company Delivery'),
-        ('SELF_PICKUP', 'Customer Self-Pickup'),
-    ]
+    DELIVERY_TYPE_CHOICES = [('DELIVERED', 'Company Delivery'), ('SELF_PICKUP', 'Customer Self-Pickup')]
 
     date = models.DateField(default=timezone.now)
-    delivery_type = models.CharField(
-        max_length=20,
-        choices=DELIVERY_TYPE_CHOICES,
-        default='DELIVERED'
+    delivery_type = models.CharField(max_length=20, choices=DELIVERY_TYPE_CHOICES, default='DELIVERED')
+    customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name='supplies')
+    site = models.ForeignKey(Site, on_delete=models.PROTECT)
+    sales_order = models.ForeignKey(SalesOrder, on_delete=models.SET_NULL, null=True, blank=True, related_name='supplies')
+    order_item = models.ForeignKey(SalesOrderItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='supplies')
+    block_type = models.ForeignKey(BlockType, on_delete=models.PROTECT, related_name='supplies')
+
+    quantity_loaded = models.PositiveIntegerField()
+    breakages = models.PositiveIntegerField(default=0)
+    quantity_returned = models.PositiveIntegerField(default=0)
+    quantity_delivered = models.PositiveIntegerField(editable=False, default=0)
+
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    logistics_discount = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    total_value = models.DecimalField(max_digits=12, decimal_places=2, editable=False, default=Decimal('0.00'))
+    logistics_income = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), editable=False)
+
+    # NEW: COGS Fields - Frozen at time of sale for accurate P&L
+    cost_of_goods_sold = models.DecimalField(
+        max_digits=12, decimal_places=2,
+        editable=False, default=Decimal('0.00'),
+        help_text="Frozen: quantity_delivered × WAC at time of sale"
+    )
+    gross_profit_on_sale = models.DecimalField(
+        max_digits=12, decimal_places=2,
+        editable=False, default=Decimal('0.00'),
+        help_text="total_value - cost_of_goods_sold"
     )
 
-    # Customer & Location
-    customer = models.ForeignKey(
-        Customer,
-        on_delete=models.PROTECT,
-        related_name='supplies'
-    )
-    site = models.ForeignKey(
-        Site,
-        on_delete=models.PROTECT
-    )
-
-    # Link to Sales Order (optional)
-    sales_order = models.ForeignKey(
-        SalesOrder,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='supplies'
-    )
-    order_item = models.ForeignKey(
-        SalesOrderItem,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='supplies',
-        help_text="Link to specific order item (auto-populates unit_price)"
-    )
-
-    # Product
-    block_type = models.ForeignKey(
-        BlockType,
-        on_delete=models.PROTECT,
-        related_name='supplies'
-    )
-
-    # Quantities
-    quantity_loaded = models.PositiveIntegerField(
-        help_text="Blocks loaded onto truck"
-    )
-    breakages = models.PositiveIntegerField(
-        default=0,
-        help_text="Blocks broken during delivery"
-    )
-    quantity_delivered = models.PositiveIntegerField(
-        editable=False,
-        default=0,
-        help_text="Auto-calculated: loaded - breakages"
-    )
-
-    # Pricing - AUTO-POPULATED from order_item.agreed_price or block_type.selling_price
-    unit_price = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        blank=True,
-        null=True,
-        help_text="Auto-populated from Sales Order or Block Type price"
-    )
-    logistics_discount = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=Decimal('0.00'),
-        help_text="Discount for delivery issues (breakages, delays)"
-    )
-    total_value = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        editable=False,
-        default=Decimal('0.00')
-    )
-    
-    # NEW FIELD FOR TRANSPORT ANALYTICS
-    # This snapshots the "Transport Revenue" at the moment of supply.
-    # Logic: (Qty * Logistics Rate) + Surcharges
-    logistics_income = models.DecimalField(
-        max_digits=12, 
-        decimal_places=2, 
-        default=Decimal('0.00'), 
-        editable=False,
-        help_text="Income attributed to Jafan Transport (Rate + Surcharge)"
-    )
-
-    # Logistics (for company delivery)
-    truck = models.ForeignKey(
-        Truck,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='supplies'
-    )
-    driver = models.ForeignKey(
-        Employee,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='deliveries',
-        limit_choices_to={'role': 'DRIVER'}
-    )
-
-    # Self-pickup authorization
-    pickup_authorized_by = models.CharField(
-        max_length=100,
-        blank=True,
-        help_text="Name of person who authorized pickup (for self-pickup)"
-    )
-
+    truck = models.ForeignKey(Truck, on_delete=models.SET_NULL, null=True, blank=True, related_name='supplies')
+    driver = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='deliveries', limit_choices_to={'role': 'DRIVER'})
+    pickup_authorized_by = models.CharField(max_length=100, blank=True)
     remark = models.TextField(blank=True)
-    recorded_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name='recorded_supplies'
-    )
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='recorded_supplies')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1052,292 +798,237 @@ class SupplyLog(models.Model):
         verbose_name_plural = "Supply Logs"
 
     def __str__(self):
-        return f"Supply: {self.quantity_delivered} {self.block_type.name} to {self.customer.name}"
+        return f"{self.date}: {self.quantity_delivered} {self.block_type.name} -> {self.customer.name}"
 
     def clean(self):
-        """Validate before saving."""
-        # Prevent breakages exceeding loaded quantity
-        if self.breakages and self.quantity_loaded:
-            if self.breakages > self.quantity_loaded:
-                raise ValidationError({
-                    'breakages': "Breakages cannot exceed Quantity Loaded."
-                })
+        if self.breakages + self.quantity_returned > self.quantity_loaded:
+            raise ValidationError("Breakages + Returned cannot exceed Quantity Loaded.")
+        if self.delivery_type == 'DELIVERED' and not self.truck:
+            raise ValidationError({'truck': "Truck is required for Company Delivery."})
+        if self.delivery_type == 'SELF_PICKUP' and not self.pickup_authorized_by:
+            raise ValidationError({'pickup_authorized_by': "Authorization required for Self-Pickup."})
 
-        # Validate truck/driver for delivered orders
-        if self.delivery_type == 'DELIVERED':
-            if not self.truck:
-                raise ValidationError({
-                    'truck': "Truck is required for Company Delivery."
-                })
+        # Credit Check
+        if self.order_item:
+            price = self.order_item.agreed_price
+        elif self.unit_price:
+            price = self.unit_price
+        else:
+            price = self.block_type.selling_price
+        
+        qty = self.quantity_loaded - self.breakages - self.quantity_returned
+        new_debt = (qty * price) - (self.logistics_discount or 0)
 
-        # Validate pickup authorization
-        if self.delivery_type == 'SELF_PICKUP':
-            if not self.pickup_authorized_by:
-                raise ValidationError({
-                    'pickup_authorized_by': "Authorization name required for Self-Pickup."
-                })
+        current_bal = self.customer.account_balance
+        if self.pk:
+            old = SupplyLog.objects.get(pk=self.pk)
+            current_bal += old.total_value  # Add back old debit
+
+        projected = current_bal - new_debt
+        if projected < 0 and abs(projected) > self.customer.credit_limit:
+            raise ValidationError(f"Credit Limit Exceeded! Projected Balance: {projected}, Limit: {self.customer.credit_limit}")
 
     @transaction.atomic
     def save(self, *args, **kwargs):
-        is_new = self.pk is None
+        is_edit = self.pk is not None
+        if is_edit:
+            old = SupplyLog.objects.select_for_update().get(pk=self.pk)
+            # REVERSE OLD
+            net_deduction = old.quantity_loaded - old.quantity_returned
+            BlockType.objects.filter(pk=old.block_type.pk).update(
+                current_stock=F('current_stock') + net_deduction
+            )
+            Customer.objects.filter(pk=old.customer.pk).update(
+                account_balance=F('account_balance') + old.total_value
+            )
+            
+            if old.order_item:
+                SalesOrderItem.objects.filter(pk=old.order_item.pk).update(
+                    quantity_supplied=F('quantity_supplied') - old.quantity_delivered
+                )
+                self._update_order_status(old.sales_order)
+            
+            if old.delivery_type == 'DELIVERED' and old.logistics_income > 0:
+                t_vendor = Vendor.objects.filter(is_internal=True, supply_type='TRANSPORT').first()
+                if t_vendor:
+                    Vendor.objects.filter(pk=t_vendor.pk).update(
+                        account_balance=F('account_balance') - old.logistics_income
+                    )
 
-        # AUTO-POPULATE from Sales Order Item if linked
+        # SETUP NEW
         if self.order_item:
             self.unit_price = self.order_item.agreed_price
             self.block_type = self.order_item.block_type
             if self.order_item.order:
                 self.sales_order = self.order_item.order
-
-        # Fallback to block_type selling price if no order
-        if not self.unit_price and self.block_type:
+        if not self.unit_price:
             self.unit_price = self.block_type.selling_price
 
-        # Calculate delivered quantity
-        self.quantity_delivered = self.quantity_loaded - self.breakages
-
-        # Calculate total value
+        self.quantity_delivered = self.quantity_loaded - self.breakages - self.quantity_returned
         self.total_value = (self.quantity_delivered * self.unit_price) - self.logistics_discount
         
-        # CALCULATE LOGISTICS INCOME (SNAPSHOT)
-        # Base: Qty * Logistics Rate
+        # Calculate logistics income (Base Rate + Surcharge)
         logistics_base = self.quantity_delivered * self.block_type.logistics_rate
+        surcharge = Decimal('0')
+        if self.sales_order and self.sales_order.surcharge_per_block:
+            surcharge = Decimal(self.quantity_delivered) * self.sales_order.surcharge_per_block
+        self.logistics_income = logistics_base + surcharge
+
+        # Calculate COGS - Freeze WAC at time of sale
+        current_wac = self.block_type.weighted_average_cost or Decimal('0.00')
+        self.cost_of_goods_sold = Decimal(self.quantity_delivered) * current_wac
         
-        # Surcharge: If Sales Order has surcharge, add it
-        surcharge_total = Decimal('0.00')
-        if self.sales_order and self.sales_order.surcharge_per_block > 0:
-            surcharge_total = self.quantity_delivered * self.sales_order.surcharge_per_block
-            
-        self.logistics_income = logistics_base + surcharge_total
-
-        if is_new:
-            # Deduct from block stock using F() - RACE CONDITION SAFE
-            BlockType.objects.filter(pk=self.block_type.pk).update(
-                current_stock=F('current_stock') - self.quantity_loaded
-            )
-            self.block_type.refresh_from_db()
-
-            # Debit customer account using F() - RACE CONDITION SAFE
-            Customer.objects.filter(pk=self.customer.pk).update(
-                account_balance=F('account_balance') - self.total_value
-            )
-            self.customer.refresh_from_db()
-
-            # Update order item supplied quantity using F()
-            if self.order_item:
-                SalesOrderItem.objects.filter(pk=self.order_item.pk).update(
-                    quantity_supplied=F('quantity_supplied') + self.quantity_delivered
-                )
-                self.order_item.refresh_from_db()
-                self._update_order_status()
+        # ✅ FIX: Subtract ONLY surcharge from gross profit
+        # Base logistics is already in COGS (via WAC)
+        # Surcharge is NOT in COGS but IS in unit_price, so we subtract it
+        self.gross_profit_on_sale = self.total_value - self.cost_of_goods_sold - surcharge
 
         super().save(*args, **kwargs)
 
+        # APPLY NEW
+        new_net = self.quantity_loaded - self.quantity_returned
+        BlockType.objects.filter(pk=self.block_type.pk).update(
+            current_stock=F('current_stock') - new_net
+        )
+        Customer.objects.filter(pk=self.customer.pk).update(
+            account_balance=F('account_balance') - self.total_value
+        )
+        
+        if self.order_item:
+            SalesOrderItem.objects.filter(pk=self.order_item.pk).update(
+                quantity_supplied=F('quantity_supplied') + self.quantity_delivered
+            )
+            self._update_order_status(self.sales_order)
+        
+        if self.delivery_type == 'DELIVERED' and self.logistics_income > 0:
+            t_vendor = Vendor.objects.filter(is_internal=True, supply_type='TRANSPORT').first()
+            if t_vendor:
+                Vendor.objects.filter(pk=t_vendor.pk).update(
+                    account_balance=F('account_balance') + self.logistics_income
+                )
+
     @transaction.atomic
     def delete(self, *args, **kwargs):
-        # Reverse stock using F()
+        net_deduction = self.quantity_loaded - self.quantity_returned
         BlockType.objects.filter(pk=self.block_type.pk).update(
-            current_stock=F('current_stock') + self.quantity_loaded
+            current_stock=F('current_stock') + net_deduction
         )
-
-        # Reverse customer balance using F()
         Customer.objects.filter(pk=self.customer.pk).update(
             account_balance=F('account_balance') + self.total_value
         )
-
-        # Reverse order item supplied quantity using F()
+        
+        order_to_update = self.sales_order
         if self.order_item:
             SalesOrderItem.objects.filter(pk=self.order_item.pk).update(
                 quantity_supplied=F('quantity_supplied') - self.quantity_delivered
             )
-            self.order_item.refresh_from_db()
-            self._update_order_status()
-
+        
+        if self.delivery_type == 'DELIVERED' and self.logistics_income > 0:
+            t_vendor = Vendor.objects.filter(is_internal=True, supply_type='TRANSPORT').first()
+            if t_vendor:
+                Vendor.objects.filter(pk=t_vendor.pk).update(
+                    account_balance=F('account_balance') - self.logistics_income
+                )
+            
         super().delete(*args, **kwargs)
+        if order_to_update:
+            self._update_order_status(order_to_update)
 
-    def _update_order_status(self):
-        """Update the parent sales order status based on supply progress."""
-        if self.sales_order:
-            progress = self.sales_order.supply_progress
-            if progress == 0:
-                self.sales_order.status = 'PENDING'
-            elif progress >= 100:
-                self.sales_order.status = 'COMPLETED'
+    def _update_order_status(self, order):
+        if order:
+            total_ordered = sum(i.quantity_requested for i in order.items.all())
+            total_supplied = sum(i.quantity_supplied for i in order.items.all())
+            if total_ordered == 0:
+                order.status = 'PENDING'
+            elif total_supplied >= total_ordered:
+                order.status = 'COMPLETED'
+            elif total_supplied > 0:
+                order.status = 'PARTIAL'
             else:
-                self.sales_order.status = 'PARTIAL'
-            self.sales_order.save()
+                order.status = 'PENDING'
+            order.save()
 
 
 # ==============================================================================
-# Day 8: Returns & Refunds (Reverse Logistics)
+# 7. Returns & Refunds
 # ==============================================================================
 
 class ReturnLog(models.Model):
-    """
-    Tracks blocks returned from customers/deliveries.
-
-    IMPORTANT: By default, returns do NOT credit the customer account.
-    Only check 'credit_customer' if this is a genuine refund scenario.
-    """
-
-    CONDITION_CHOICES = [
-        ('GOOD', 'Good/Reusable (Full Block)'),
-        ('HALF', 'Broken but Reusable (Half Block)'),
-        ('DAMAGED', 'Damaged/Condemned (No Restock)'),
-    ]
-
+    CONDITION_CHOICES = [('GOOD', 'Good'), ('HALF', 'Broken (Half)'), ('DAMAGED', 'Damaged')]
     date = models.DateField(default=timezone.now)
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name='returns')
     site = models.ForeignKey(Site, on_delete=models.PROTECT)
-    original_supply = models.ForeignKey(
-        'SupplyLog',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Link to original supply (optional, for traceability)"
-    )
-
-    # Product Info
-    block_type = models.ForeignKey(
-        BlockType,
-        on_delete=models.PROTECT,
-        help_text="The block type that was originally supplied"
-    )
+    original_supply = models.ForeignKey(SupplyLog, on_delete=models.SET_NULL, null=True, blank=True)
+    block_type = models.ForeignKey(BlockType, on_delete=models.PROTECT)
     quantity_returned = models.PositiveIntegerField()
     condition = models.CharField(max_length=20, choices=CONDITION_CHOICES, default='GOOD')
+    restock_as = models.ForeignKey(BlockType, on_delete=models.SET_NULL, null=True, blank=True, related_name='restocked_returns')
+    
+    credit_customer = models.BooleanField(default=False)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    restocking_fee = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    credit_value = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), editable=False)
 
-    # Item Transformation (for half blocks)
-    restock_as = models.ForeignKey(
-        BlockType,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='restocked_returns',
-        help_text="If returned block is now different type (e.g., Whole → Half), select target type here."
-    )
-
-    # Credit Customer Toggle
-    credit_customer = models.BooleanField(
-        default=False,
-        help_text="⚠️ Check ONLY if customer should receive account credit."
-    )
-
-    # Financials (only applies if credit_customer is True)
-    unit_price = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=Decimal('0.00'),
-        help_text="Credit per block (only used if 'Credit Customer' is checked)"
-    )
-    restocking_fee = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=Decimal('0.00'),
-        help_text="Fee deducted from credit"
-    )
-    credit_value = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        default=Decimal('0.00'),
-        editable=False,
-        help_text="Actual credit applied to customer account"
-    )
-
-    reason = models.TextField(help_text="Reason for return")
-    approved_by = models.ForeignKey(
-        User,
-        on_delete=models.PROTECT,
-        related_name='approved_returns',
-        limit_choices_to={'role__in': ['ADMIN', 'GM']}
-    )
-
-    recorded_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name='recorded_returns'
-    )
+    reason = models.TextField()
+    approved_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='approved_returns')
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='recorded_returns')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-date', '-created_at']
-        verbose_name = "Return Log"
-        verbose_name_plural = "Return Logs"
 
     def __str__(self):
-        credit_status = "w/ Credit" if self.credit_customer else "No Credit"
-        return f"Return: {self.quantity_returned} {self.block_type.name} from {self.customer.name} ({credit_status})"
+        return f"Return: {self.quantity_returned} {self.block_type.name} from {self.customer.name}"
+
+    def clean(self):
+        if self.original_supply:
+            if self.quantity_returned > self.original_supply.quantity_delivered:
+                raise ValidationError("Returned quantity cannot exceed original delivered quantity.")
 
     @transaction.atomic
     def save(self, *args, **kwargs):
-        is_new = self.pk is None
+        is_edit = self.pk is not None
+        if is_edit:
+            old = ReturnLog.objects.select_for_update().get(pk=self.pk)
+            # Reverse Old
+            if old.credit_customer and old.credit_value > 0:
+                Customer.objects.filter(pk=old.customer.pk).update(account_balance=F('account_balance') - old.credit_value)
+            if old.condition != 'DAMAGED':
+                target = old.restock_as if old.restock_as else old.block_type
+                BlockType.objects.filter(pk=target.pk).update(current_stock=F('current_stock') - old.quantity_returned)
 
-        # Calculate credit value
         if self.credit_customer:
             self.credit_value = (self.quantity_returned * self.unit_price) - self.restocking_fee
-            if self.credit_value < 0:
-                self.credit_value = Decimal('0.00')
-        else:
-            self.credit_value = Decimal('0.00')
-
-        if is_new:
-            # Credit customer account ONLY if checkbox is checked using F()
-            if self.credit_customer and self.credit_value > 0:
-                Customer.objects.filter(pk=self.customer.pk).update(
-                    account_balance=F('account_balance') + self.credit_value
-                )
-                self.customer.refresh_from_db()
-
-            # Update stock (if not damaged) using F()
-            if self.condition != 'DAMAGED':
-                target_block = self.restock_as if self.restock_as else self.block_type
-                BlockType.objects.filter(pk=target_block.pk).update(
-                    current_stock=F('current_stock') + self.quantity_returned
-                )
-                target_block.refresh_from_db()
+            if self.credit_value < 0: self.credit_value = 0
+        else: self.credit_value = 0
 
         super().save(*args, **kwargs)
 
+        # Apply New
+        if self.credit_customer and self.credit_value > 0:
+            Customer.objects.filter(pk=self.customer.pk).update(account_balance=F('account_balance') + self.credit_value)
+        if self.condition != 'DAMAGED':
+            target = self.restock_as if self.restock_as else self.block_type
+            BlockType.objects.filter(pk=target.pk).update(current_stock=F('current_stock') + self.quantity_returned)
+
     @transaction.atomic
     def delete(self, *args, **kwargs):
-        # Reverse customer credit using F()
         if self.credit_customer and self.credit_value > 0:
-            Customer.objects.filter(pk=self.customer.pk).update(
-                account_balance=F('account_balance') - self.credit_value
-            )
-
-        # Reverse stock using F()
+            Customer.objects.filter(pk=self.customer.pk).update(account_balance=F('account_balance') - self.credit_value)
         if self.condition != 'DAMAGED':
-            target_block = self.restock_as if self.restock_as else self.block_type
-            BlockType.objects.filter(pk=target_block.pk).update(
-                current_stock=F('current_stock') - self.quantity_returned
-            )
-
+            target = self.restock_as if self.restock_as else self.block_type
+            BlockType.objects.filter(pk=target.pk).update(current_stock=F('current_stock') - self.quantity_returned)
         super().delete(*args, **kwargs)
 
 
 class CashRefund(models.Model):
-    """
-    Money Out (Refunds).
-    Action: DEBITS Customer Balance.
-    """
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name='refunds')
     date = models.DateField(default=timezone.now)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
-    payment_account = models.ForeignKey(
-        PaymentAccount,
-        on_delete=models.PROTECT,
-        help_text="Bank account paying the refund"
-    )
-
-    reason = models.TextField(help_text="Reason for refund")
-    approved_by = models.ForeignKey(
-        User,
-        on_delete=models.PROTECT,
-        related_name='approved_refunds',
-        limit_choices_to={'role__in': ['ADMIN', 'GM']},
-        help_text="Must be Admin or GM"
-    )
+    payment_account = models.ForeignKey(PaymentAccount, on_delete=models.PROTECT)
+    reason = models.TextField()
+    approved_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='approved_refunds')
     recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False, related_name='recorded_refunds')
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -1346,210 +1037,96 @@ class CashRefund(models.Model):
 
     @transaction.atomic
     def save(self, *args, **kwargs):
-        is_new = self.pk is None
-        old_amount = Decimal('0')
-        
-        if not is_new:
-            old_amount = CashRefund.objects.get(pk=self.pk).amount
+        is_edit = self.pk is not None
+        if is_edit:
+            old = CashRefund.objects.select_for_update().get(pk=self.pk)
+            Customer.objects.filter(pk=old.customer.pk).update(account_balance=F('account_balance') + old.amount)
+            if old.payment_account:
+                PaymentAccount.objects.filter(pk=old.payment_account.pk).update(current_balance=F('current_balance') + old.amount)
 
         super().save(*args, **kwargs)
 
-        # Debit Customer using F() - RACE CONDITION SAFE
-        diff = self.amount - old_amount
-        if diff != 0:
-            Customer.objects.filter(pk=self.customer.pk).update(
-                account_balance=F('account_balance') - diff
-            )
-            self.customer.refresh_from_db()
+        Customer.objects.filter(pk=self.customer.pk).update(account_balance=F('account_balance') - self.amount)
+        if self.payment_account:
+            PaymentAccount.objects.filter(pk=self.payment_account.pk).update(current_balance=F('current_balance') - self.amount)
 
     @transaction.atomic
     def delete(self, *args, **kwargs):
-        # Reverse customer balance using F()
-        Customer.objects.filter(pk=self.customer.pk).update(
-            account_balance=F('account_balance') + self.amount
-        )
+        Customer.objects.filter(pk=self.customer.pk).update(account_balance=F('account_balance') + self.amount)
+        if self.payment_account:
+            PaymentAccount.objects.filter(pk=self.payment_account.pk).update(current_balance=F('current_balance') + self.amount)
         super().delete(*args, **kwargs)
 
-    def __str__(self):
-        return f"Refund: ₦{self.amount:,.2f} to {self.customer.name}"
-
-
-# ==============================================================================
-# Day 14: Breakage Log (On-Site Damage Tracking)
-# ==============================================================================
 
 class BreakageLog(models.Model):
-    """
-    Track blocks damaged on-site (not during delivery).
-    Handles conversion of broken full blocks to half blocks.
-    """
-
-    REASON_CHOICES = [
-        ('STACKING', 'Broken during stacking'),
-        ('RAIN', 'Rain/weather damage'),
-        ('ACCIDENT', 'Site accident'),
-        ('HANDLING', 'Improper handling'),
-        ('PRODUCTION', 'Production defect'),
-        ('TRANSPORT', 'Internal transport damage'),
-        ('OTHER', 'Other'),
-    ]
-
     date = models.DateField(default=timezone.now)
-
-    # What was broken
-    block_type = models.ForeignKey(
-        BlockType,
-        on_delete=models.PROTECT,
-        related_name='breakages',
-        help_text="The full block type that was damaged"
-    )
-    quantity_broken = models.PositiveIntegerField(
-        help_text="Number of blocks damaged"
-    )
-
-    # Reason and details
-    reason = models.CharField(
-        max_length=20,
-        choices=REASON_CHOICES,
-        default='HANDLING'
-    )
-    description = models.TextField(
-        blank=True,
-        help_text="Additional details about the breakage incident"
-    )
-
-    # Half block conversion
-    convert_to_half = models.BooleanField(
-        default=False,
-        help_text="Check if broken blocks can be salvaged as half blocks"
-    )
-    half_block_type = models.ForeignKey(
-        BlockType,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='salvaged_from_breakages',
-        limit_choices_to={'is_half_block': True},
-        help_text="Select the half block type to add to stock (only if converting)"
-    )
-    quantity_salvaged = models.PositiveIntegerField(
-        default=0,
-        help_text="Number of half blocks salvaged (usually 2x broken if salvageable)"
-    )
-
-    # Approval and tracking
-    recorded_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name='recorded_breakages'
-    )
-    approved_by = models.ForeignKey(
-        User,
-        on_delete=models.PROTECT,
-        related_name='approved_breakages',
-        limit_choices_to={'role__in': ['ADMIN', 'GM']},
-        help_text="Manager who approved this breakage write-off"
-    )
-
+    block_type = models.ForeignKey(BlockType, on_delete=models.PROTECT, related_name='breakages')
+    quantity_broken = models.PositiveIntegerField()
+    reason = models.CharField(max_length=20, choices=[('STACKING', 'Stacking'), ('HANDLING', 'Handling')], default='HANDLING')
+    description = models.TextField(blank=True)
+    convert_to_half = models.BooleanField(default=False)
+    half_block_type = models.ForeignKey(BlockType, on_delete=models.SET_NULL, null=True, blank=True, related_name='salvaged_from_breakages')
+    quantity_salvaged = models.PositiveIntegerField(default=0)
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='recorded_breakages')
+    approved_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='approved_breakages')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        ordering = ['-date', '-created_at']
-        verbose_name = "Breakage Log"
-        verbose_name_plural = "Breakage Logs"
-
-    def __str__(self):
-        salvage_info = f" → {self.quantity_salvaged} half" if self.convert_to_half else ""
-        return f"Breakage: {self.quantity_broken} {self.block_type.name} ({self.get_reason_display()}){salvage_info}"
-
     def clean(self):
-        """Validate conversion settings."""
         if self.convert_to_half:
             if not self.half_block_type:
-                raise ValidationError({
-                    'half_block_type': 'You must select a half block type when converting.'
-                })
+                raise ValidationError({'half_block_type': 'You must select a half block type when converting.'})
             if self.half_block_type and not self.half_block_type.is_half_block:
-                raise ValidationError({
-                    'half_block_type': 'Selected block type must be a half block.'
-                })
-            if self.quantity_salvaged <= 0:
-                raise ValidationError({
-                    'quantity_salvaged': 'Quantity salvaged must be greater than 0 when converting.'
-                })
+                raise ValidationError({'half_block_type': 'Selected block type must be a half block.'})
+            if self.quantity_salvaged <= 0 and self.quantity_broken > 0:
+                pass  # Auto-set in save(), so this is optional
 
     @transaction.atomic
     def save(self, *args, **kwargs):
-        is_new = self.pk is None
+        is_edit = self.pk is not None
+        if is_edit:
+            old = BreakageLog.objects.select_for_update().get(pk=self.pk)
+            BlockType.objects.filter(pk=old.block_type.pk).update(current_stock=F('current_stock') + old.quantity_broken)
+            if old.convert_to_half and old.half_block_type:
+                BlockType.objects.filter(pk=old.half_block_type.pk).update(current_stock=F('current_stock') - old.quantity_salvaged)
 
-        # Auto-suggest salvaged quantity (2 halves per broken block)
-        if self.convert_to_half and self.quantity_salvaged == 0:
-            self.quantity_salvaged = self.quantity_broken * 2
-
-        if is_new:
-            # Deduct broken blocks from full block stock using F()
-            BlockType.objects.filter(pk=self.block_type.pk).update(
-                current_stock=F('current_stock') - self.quantity_broken
-            )
-            self.block_type.refresh_from_db()
-
-            # Add salvaged half blocks if converting using F()
-            if self.convert_to_half and self.half_block_type and self.quantity_salvaged > 0:
-                BlockType.objects.filter(pk=self.half_block_type.pk).update(
-                    current_stock=F('current_stock') + self.quantity_salvaged
-                )
-                self.half_block_type.refresh_from_db()
-
+        if self.convert_to_half and self.quantity_salvaged == 0: self.quantity_salvaged = self.quantity_broken * 2
+        
         super().save(*args, **kwargs)
+
+        BlockType.objects.filter(pk=self.block_type.pk).update(current_stock=F('current_stock') - self.quantity_broken)
+        if self.convert_to_half and self.half_block_type:
+            BlockType.objects.filter(pk=self.half_block_type.pk).update(current_stock=F('current_stock') + self.quantity_salvaged)
 
     @transaction.atomic
     def delete(self, *args, **kwargs):
-        # Reverse stock changes using F()
-        BlockType.objects.filter(pk=self.block_type.pk).update(
-            current_stock=F('current_stock') + self.quantity_broken
-        )
-
-        if self.convert_to_half and self.half_block_type and self.quantity_salvaged > 0:
-            BlockType.objects.filter(pk=self.half_block_type.pk).update(
-                current_stock=F('current_stock') - self.quantity_salvaged
-            )
-
+        BlockType.objects.filter(pk=self.block_type.pk).update(current_stock=F('current_stock') + self.quantity_broken)
+        if self.convert_to_half and self.half_block_type:
+            BlockType.objects.filter(pk=self.half_block_type.pk).update(current_stock=F('current_stock') - self.quantity_salvaged)
         super().delete(*args, **kwargs)
 
 
-# ==============================================================================
-# Day 15: Diesel & Transport Management (NEW)
-# ==============================================================================
-
 class FuelLog(models.Model):
-    """
-    Tracks diesel usage.
-    Action: Deducts 'DIESEL' stock from Material Inventory.
-    """
-    DESTINATION_CHOICES = [
-        ('TRUCK', 'Truck / Logistics'),
-        ('MACHINE', 'Generator / Machine'),
-    ]
-
+    DESTINATION_CHOICES = [('TRUCK', 'Truck'), ('MACHINE', 'Generator'), ('ASSET', 'Asset')]
+    FUEL_TYPE_CHOICES = [('DIESEL', 'Diesel'), ('PETROL', 'Petrol'), ('ENGINE_OIL', 'Oil')]
+    
     date = models.DateField(default=timezone.now)
     destination_type = models.CharField(max_length=10, choices=DESTINATION_CHOICES, default='TRUCK')
+    fuel_type = models.CharField(max_length=15, choices=FUEL_TYPE_CHOICES, default='DIESEL')
     
-    # Destination Targets
     truck = models.ForeignKey(Truck, on_delete=models.SET_NULL, null=True, blank=True, related_name='fuel_logs')
     machine = models.ForeignKey(Machine, on_delete=models.SET_NULL, null=True, blank=True, related_name='fuel_logs')
+    transport_asset = models.ForeignKey(TransportAsset, on_delete=models.SET_NULL, null=True, blank=True, related_name='fuel_logs')
     
-    quantity = models.DecimalField(max_digits=10, decimal_places=2, help_text="Liters dispensed")
+    driver = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='fuel_received')
+    quantity = models.DecimalField(max_digits=10, decimal_places=2)
+    engine_hours = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     
-    # Efficiency Metrics
-    current_odometer = models.PositiveIntegerField(null=True, blank=True, help_text="Current KM (for Trucks)")
-    engine_hours = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Run hours (for Generators)")
-    
-    # Financials (Auto-Calculated)
-    cost_per_liter = models.DecimalField(max_digits=10, decimal_places=2, editable=False, help_text="Cost at time of dispensing")
+    cost_per_liter = models.DecimalField(max_digits=10, decimal_places=2)
     total_cost = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
-
+    
+    fuel_station = models.CharField(max_length=100, blank=True, null=True)
+    payment_method = models.CharField(max_length=20, default='CASH')
     dispensed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
     remark = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1560,59 +1137,695 @@ class FuelLog(models.Model):
         verbose_name_plural = "Fuel Logs"
 
     def __str__(self):
-        dest = self.truck.name if self.truck else (self.machine.name if self.machine else "Unknown")
-        return f"{self.quantity}L to {dest} ({self.date})"
+        dest = self.truck.name if self.truck else (self.machine.name if self.machine else "Asset")
+        return f"{self.quantity}L {self.fuel_type} to {dest}"
 
     def clean(self):
-        """Ensure either truck OR machine is selected, matching the type."""
-        if self.destination_type == 'TRUCK' and not self.truck:
-            raise ValidationError("Please select a Truck.")
-        if self.destination_type == 'MACHINE' and not self.machine:
-            raise ValidationError("Please select a Machine/Generator.")
+        if self.destination_type == 'TRUCK' and not self.truck: raise ValidationError("Select a Truck.")
+        if self.destination_type == 'MACHINE' and not self.machine: raise ValidationError("Select a Machine.")
+        if self.destination_type == 'ASSET' and not self.transport_asset: raise ValidationError("Select a Transport Asset.")
         
-        # Check stock availability
-        diesel = Material.objects.filter(name='DIESEL').first()
-        if diesel and self.quantity > diesel.current_stock:
-             # Only block if it's a new record (to allow editing old ones without error)
-            if self.pk is None:
-                raise ValidationError(f"Not enough Diesel! Current Stock: {diesel.current_stock} Liters")
+        # STOCK CHECK FOR DIESEL
+        if self.pk is None and self.fuel_type == 'DIESEL':
+            diesel = Material.objects.filter(name='DIESEL').first()
+            if diesel and self.quantity > diesel.current_stock:
+                raise ValidationError(f"Not enough Diesel! Current Stock: {diesel.current_stock}")
 
     @transaction.atomic
     def save(self, *args, **kwargs):
-        is_new = self.pk is None
-        
-        # 1. Get current Diesel price for cost tracking
-        diesel_mat = Material.objects.get(name='DIESEL')
-        self.cost_per_liter = diesel_mat.unit_price
-        self.total_cost = self.quantity * self.cost_per_liter
+        is_edit = self.pk is not None
+        if is_edit:
+            old = FuelLog.objects.select_for_update().get(pk=self.pk)
+            if old.fuel_type == 'DIESEL':
+                Material.objects.filter(name='DIESEL').update(current_stock=F('current_stock') + old.quantity)
 
-        # 2. Handle Inventory Deduction (Reverse old if editing)
-        old_qty = Decimal('0')
-        if not is_new:
-            old_log = FuelLog.objects.get(pk=self.pk)
-            old_qty = old_log.quantity
+        if self.fuel_type == 'DIESEL' and not self.cost_per_liter:
+            mat = Material.objects.filter(name='DIESEL').first()
+            if mat: self.cost_per_liter = mat.unit_price
         
+        self.total_cost = self.quantity * self.cost_per_liter
         super().save(*args, **kwargs)
 
-        # 3. Update Inventory using F()
-        diff = self.quantity - old_qty
-        if diff != 0:
-            Material.objects.filter(name='DIESEL').update(
-                current_stock=F('current_stock') - diff
-            )
+        if self.fuel_type == 'DIESEL':
+            Material.objects.filter(name='DIESEL').update(current_stock=F('current_stock') - self.quantity)
 
     @transaction.atomic
     def delete(self, *args, **kwargs):
-        # Reverse inventory deduction
-        Material.objects.filter(name='DIESEL').update(
-            current_stock=F('current_stock') + self.quantity
+        if self.fuel_type == 'DIESEL':
+            Material.objects.filter(name='DIESEL').update(current_stock=F('current_stock') + self.quantity)
+        super().delete(*args, **kwargs)
+
+
+class MaintenanceLog(models.Model):
+    TARGET_CHOICES = [('TRUCK', 'Truck'), ('MACHINE', 'Machine'), ('ASSET', 'Asset')]
+    date = models.DateField(default=timezone.now)
+    target_type = models.CharField(max_length=10, choices=TARGET_CHOICES, default='TRUCK')
+    truck = models.ForeignKey(Truck, on_delete=models.CASCADE, null=True, blank=True, related_name="maintenance_logs")
+    machine = models.ForeignKey(Machine, on_delete=models.CASCADE, null=True, blank=True, related_name="maintenance_logs")
+    transport_asset = models.ForeignKey(TransportAsset, on_delete=models.CASCADE, null=True, blank=True, related_name="maintenance_logs")
+    
+    service_type = models.CharField(max_length=20, choices=[('ROUTINE', 'Routine'), ('REPAIR', 'Repair')])
+    description = models.TextField()
+    vendor = models.ForeignKey(Vendor, on_delete=models.SET_NULL, null=True, blank=True)
+    cost = models.DecimalField(max_digits=10, decimal_places=2)
+    payment_method = models.CharField(max_length=20, default='CASH')
+    payment_account = models.ForeignKey('PaymentAccount', on_delete=models.SET_NULL, null=True, blank=True)
+    
+    expense_entry = models.OneToOneField(Expense, on_delete=models.SET_NULL, null=True, blank=True, editable=False)
+    next_service_date = models.DateField(null=True, blank=True)
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date']
+
+    def __str__(self):
+        target = self.truck.name if self.truck else (self.machine.name if self.machine else (self.transport_asset.name if self.transport_asset else "Unknown"))
+        return f"{target} - {self.service_type} ({self.date})"
+
+    def clean(self):
+        if self.target_type == 'TRUCK' and not self.truck: raise ValidationError("Select a Truck.")
+        if self.target_type == 'MACHINE' and not self.machine: raise ValidationError("Select a Machine.")
+        if self.target_type == 'ASSET' and not self.transport_asset: raise ValidationError("Select a Transport Asset.")
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        if self.truck or self.transport_asset: 
+            b_unit = 'TRANSPORT'
+        else: 
+            b_unit = 'BLOCK'
+        
+        target_name = self.truck.name if self.truck else (self.machine.name if self.machine else (self.transport_asset.name if self.transport_asset else "Unknown"))
+        cat, _ = ExpenseCategory.objects.get_or_create(name="Maintenance and Repair")
+        desc = f"Auto: {self.service_type} - {target_name}"
+
+        if not self.expense_entry:
+            self.expense_entry = Expense.objects.create(
+                date=self.date, category=cat, description=desc, amount=self.cost,
+                business_unit=b_unit, is_paid=True, payment_account=self.payment_account,
+                vendor=self.vendor, truck=self.truck, machine=self.machine, 
+                transport_asset=self.transport_asset,
+                is_auto_synced=True, recorded_by=self.recorded_by
+            )
+        else:
+            self.expense_entry.date = self.date
+            self.expense_entry.description = desc
+            self.expense_entry.amount = self.cost
+            self.expense_entry.business_unit = b_unit
+            self.expense_entry.payment_account = self.payment_account
+            self.expense_entry.save()
+        
+        super().save(*args, **kwargs)
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        if self.expense_entry: 
+            self.expense_entry.delete()
+        super().delete(*args, **kwargs)
+
+
+class TransportRevenue(models.Model):
+    date = models.DateField(default=timezone.now)
+    job_type = models.CharField(max_length=20, default='WATER')
+    truck = models.ForeignKey(Truck, on_delete=models.PROTECT, related_name='revenue_logs')
+    driver = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='transport_jobs')
+    customer_name = models.CharField(max_length=100)
+    customer_phone = models.CharField(max_length=20, blank=True, null=True)
+    delivery_address = models.TextField(blank=True, null=True)
+    trips = models.PositiveIntegerField(default=1)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    is_paid = models.BooleanField(default=True)
+    payment_method = models.CharField(max_length=20, default='CASH')
+    description = models.TextField(blank=True)
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+
+    def __str__(self):
+        return f"{self.date} | {self.job_type} | ₦{self.amount:,.2f}"
+
+
+class BankCharge(models.Model):
+    date = models.DateField(default=timezone.now)
+    account = models.ForeignKey(PaymentAccount, on_delete=models.PROTECT, related_name='bank_charges')
+    charge_type = models.CharField(max_length=20)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    description = models.CharField(max_length=200, blank=True)
+    reference = models.CharField(max_length=100, blank=True, null=True)
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_edit = self.pk is not None
+        if is_edit:
+            old = BankCharge.objects.select_for_update().get(pk=self.pk)
+            PaymentAccount.objects.filter(pk=old.account.pk).update(current_balance=F('current_balance') + old.amount)
+        
+        super().save(*args, **kwargs)
+        PaymentAccount.objects.filter(pk=self.account.pk).update(current_balance=F('current_balance') - self.amount)
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        PaymentAccount.objects.filter(pk=self.account.pk).update(current_balance=F('current_balance') + self.amount)
+        super().delete(*args, **kwargs)
+
+
+class AccountTransfer(models.Model):
+    date = models.DateField(default=timezone.now)
+    from_account = models.ForeignKey(PaymentAccount, on_delete=models.PROTECT, related_name='transfers_out')
+    to_account = models.ForeignKey(PaymentAccount, on_delete=models.PROTECT, related_name='transfers_in')
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    reference = models.CharField(max_length=100, blank=True)
+    description = models.CharField(max_length=200, blank=True)
+    is_transport_settlement = models.BooleanField(default=False)
+    expense_entry = models.OneToOneField(Expense, on_delete=models.SET_NULL, null=True, blank=True, editable=False)
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        if self.from_account == self.to_account: raise ValidationError("Cannot transfer to same account.")
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_edit = self.pk is not None
+        if is_edit:
+            old = AccountTransfer.objects.select_for_update().get(pk=self.pk)
+            PaymentAccount.objects.filter(pk=old.from_account.pk).update(current_balance=F('current_balance') + old.amount)
+            PaymentAccount.objects.filter(pk=old.to_account.pk).update(current_balance=F('current_balance') - old.amount)
+            if old.is_transport_settlement:
+                t_vendor = Vendor.objects.filter(is_internal=True, supply_type='TRANSPORT').first()
+                if t_vendor: Vendor.objects.filter(pk=t_vendor.pk).update(account_balance=F('account_balance') + old.amount)
+
+        super().save(*args, **kwargs)
+
+        PaymentAccount.objects.filter(pk=self.from_account.pk).update(current_balance=F('current_balance') - self.amount)
+        PaymentAccount.objects.filter(pk=self.to_account.pk).update(current_balance=F('current_balance') + self.amount)
+        
+        if self.is_transport_settlement:
+            if not self.expense_entry:
+                cat, _ = ExpenseCategory.objects.get_or_create(name="Internal Transfer - Transport")
+                self.expense_entry = Expense.objects.create(
+                    date=self.date, category=cat, description=f"Settlement: {self.reference}",
+                    amount=self.amount, payment_account=self.from_account, is_auto_synced=True, recorded_by=self.recorded_by
+                )
+                AccountTransfer.objects.filter(pk=self.pk).update(expense_entry=self.expense_entry)
+            
+            t_vendor = Vendor.objects.filter(is_internal=True, supply_type='TRANSPORT').first()
+            if t_vendor: Vendor.objects.filter(pk=t_vendor.pk).update(account_balance=F('account_balance') - self.amount)
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        PaymentAccount.objects.filter(pk=self.from_account.pk).update(current_balance=F('current_balance') + self.amount)
+        PaymentAccount.objects.filter(pk=self.to_account.pk).update(current_balance=F('current_balance') - self.amount)
+        if self.is_transport_settlement:
+            t_vendor = Vendor.objects.filter(is_internal=True, supply_type='TRANSPORT').first()
+            if t_vendor: Vendor.objects.filter(pk=t_vendor.pk).update(account_balance=F('account_balance') + self.amount)
+        if self.expense_entry: self.expense_entry.delete()
+        super().delete(*args, **kwargs)
+
+
+class DailyCashClose(models.Model):
+    STATUS_CHOICES = [('BALANCED', 'Balanced'), ('SHORT', 'Shortage'), ('EXCESS', 'Excess')]
+    account = models.ForeignKey(PaymentAccount, on_delete=models.CASCADE, limit_choices_to={'account_type': 'CASH'}, related_name='daily_closes')
+    date = models.DateField(default=timezone.now)
+    closed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    system_balance_at_close = models.DecimalField(max_digits=12, decimal_places=2)
+    physical_cash_count = models.DecimalField(max_digits=12, decimal_places=2)
+    difference = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, editable=False)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+
+    def save(self, *args, **kwargs):
+        if not self.pk and self.account: self.system_balance_at_close = self.account.current_balance
+        self.difference = self.physical_cash_count - self.system_balance_at_close
+        if self.difference == 0: self.status = 'BALANCED'
+        elif self.difference < 0: self.status = 'SHORT'
+        else: self.status = 'EXCESS'
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.date} - {self.account} ({self.get_status_display()})"
+    
+
+
+class VendorPayment(models.Model):
+    """Records payments made TO vendors to settle credit purchases."""
+    date = models.DateField(default=timezone.now)
+    vendor = models.ForeignKey(Vendor, on_delete=models.PROTECT, related_name='payments_received')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    payment_account = models.ForeignKey(PaymentAccount, on_delete=models.PROTECT)
+    reference = models.CharField(max_length=100, blank=True, null=True)
+    description = models.CharField(max_length=200, blank=True)
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+
+    def __str__(self):
+        return f"Payment to {self.vendor.name}: ₦{self.amount:,.2f}"
+
+    def clean(self):
+        if self.amount is not None and self.amount <= 0:
+            raise ValidationError({'amount': 'Payment amount must be greater than zero.'})
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_edit = self.pk is not None
+        if is_edit:
+            old = VendorPayment.objects.select_for_update().get(pk=self.pk)
+            # Reverse old
+            Vendor.objects.filter(pk=old.vendor.pk).update(
+                account_balance=F('account_balance') + old.amount
+            )
+            PaymentAccount.objects.filter(pk=old.payment_account.pk).update(
+                current_balance=F('current_balance') + old.amount
+            )
+
+        super().save(*args, **kwargs)
+
+        # Apply new
+        Vendor.objects.filter(pk=self.vendor.pk).update(
+            account_balance=F('account_balance') - self.amount
+        )
+        PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+            current_balance=F('current_balance') - self.amount
+        )
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        Vendor.objects.filter(pk=self.vendor.pk).update(
+            account_balance=F('account_balance') + self.amount
+        )
+        PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+            current_balance=F('current_balance') + self.amount
+        )
+        super().delete(*args, **kwargs)
+
+
+
+
+class TeamPayment(models.Model):
+    """
+    Records payments made to production teams/workers for their work.
+    This affects PaymentAccount balance and shows in Cash Flow,
+    but does NOT appear in P&L expenses (already captured in COGS via WAC).
+    """
+    PAYMENT_TYPE_CHOICES = [
+        ('TEAM_PAY', 'Team Production Pay'),
+        ('STACKING', 'Stacking Payment'),
+        ('LOADING', 'Loading Payment'),
+        ('OTHER', 'Other Production Labor'),
+    ]
+    
+    date = models.DateField(default=timezone.now)
+    payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPE_CHOICES, default='TEAM_PAY')
+    team = models.ForeignKey(Team, on_delete=models.PROTECT, null=True, blank=True, 
+                             help_text="Select team for production pay")
+    employee = models.ForeignKey('Employee', on_delete=models.PROTECT, null=True, blank=True,
+                                 help_text="Select employee for individual payments")
+    
+    # Period covered (OPTIONAL - mainly for team production pay)
+    period_start = models.DateField(null=True, blank=True, help_text="Start of work period (optional)")
+    period_end = models.DateField(null=True, blank=True, help_text="End of work period (optional)")
+    
+    # Amounts
+    calculated_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0'),
+        help_text="Auto-calculated from ProductionLog (for team pay only)"
+    )
+    amount_paid = models.DecimalField(
+        max_digits=12, decimal_places=2,
+        help_text="Actual amount paid"
+    )
+    
+    # Payment details
+    payment_account = models.ForeignKey(PaymentAccount, on_delete=models.PROTECT)
+    reference = models.CharField(max_length=100, blank=True, null=True)
+    description = models.TextField(blank=True, help_text="E.g., 'Daily loading for 500 blocks' or 'Stacking at Customer X site'")
+    
+    # Tracking
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+        verbose_name = "Team Payment"
+        verbose_name_plural = "Team Payments"
+
+    def __str__(self):
+        if self.team:
+            return f"{self.get_payment_type_display()} - {self.team.name}: ₦{self.amount_paid:,.2f}"
+        elif self.employee:
+            return f"{self.get_payment_type_display()} - {self.employee.name}: ₦{self.amount_paid:,.2f}"
+        return f"{self.get_payment_type_display()}: ₦{self.amount_paid:,.2f}"
+
+    def calculate_team_pay(self):
+        """Calculate expected team pay from ProductionLog for the period."""
+        if not self.team or not self.period_start or not self.period_end:
+            return Decimal('0')
+        
+        total = ProductionLog.objects.filter(
+            team=self.team,
+            date__gte=self.period_start,
+            date__lte=self.period_end
+        ).aggregate(total=Sum('team_pay'))['total'] or Decimal('0')
+        
+        return total
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_edit = self.pk is not None
+        
+        # Auto-calculate team pay ONLY if team and period are set
+        if self.team and self.period_start and self.period_end:
+            self.calculated_amount = self.calculate_team_pay()
+        
+        if is_edit:
+            old = TeamPayment.objects.select_for_update().get(pk=self.pk)
+            # Reverse old payment account deduction
+            PaymentAccount.objects.filter(pk=old.payment_account.pk).update(
+                current_balance=F('current_balance') + old.amount_paid
+            )
+
+        super().save(*args, **kwargs)
+
+        # Apply new payment account deduction
+        PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+            current_balance=F('current_balance') - self.amount_paid
+        )
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        # Reverse payment account deduction
+        PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+            current_balance=F('current_balance') + self.amount_paid
         )
         super().delete(*args, **kwargs)
 
 
 # ==============================================================================
-# Audit Registration
+# 8. Sand Sales
 # ==============================================================================
+
+class SandVehicleType(models.Model):
+    """Vehicle types that determine sand quantity and price."""
+    name = models.CharField(max_length=50, unique=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    description = models.CharField(max_length=100, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = "Sand Vehicle Type"
+        verbose_name_plural = "Sand Vehicle Types"
+
+    def __str__(self):
+        return f"{self.name} - ₦{self.price:,.2f}"
+
+
+class SandSale(models.Model):
+    """Records sand sales (walk-in cash sales, no credit)."""
+    date = models.DateField(default=timezone.now)
+    vehicle_type = models.ForeignKey(SandVehicleType, on_delete=models.PROTECT, related_name='sales')
+    quantity = models.PositiveIntegerField(default=1, help_text="Number of vehicles")
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, editable=False)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
+    
+    payment_account = models.ForeignKey(PaymentAccount, on_delete=models.PROTECT)
+    
+    # Optional customer info for walk-ins
+    customer_name = models.CharField(max_length=100, blank=True, help_text="Optional - for walk-in customers")
+    customer_phone = models.CharField(max_length=20, blank=True)
+    
+    remark = models.TextField(blank=True)
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+        verbose_name = "Sand Sale"
+        verbose_name_plural = "Sand Sales"
+
+    def __str__(self):
+        return f"{self.date} | {self.quantity}x {self.vehicle_type.name} | ₦{self.total_amount:,.2f}"
+
+    def clean(self):
+        if self.quantity <= 0:
+            raise ValidationError({'quantity': 'Quantity must be at least 1.'})
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_edit = self.pk is not None
+        
+        if is_edit:
+            old = SandSale.objects.select_for_update().get(pk=self.pk)
+            # Reverse old payment account credit
+            PaymentAccount.objects.filter(pk=old.payment_account.pk).update(
+                current_balance=F('current_balance') - old.total_amount
+            )
+
+        # Calculate totals
+        self.unit_price = self.vehicle_type.price
+        self.total_amount = self.quantity * self.unit_price
+
+        super().save(*args, **kwargs)
+
+        # Apply new payment account credit
+        PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+            current_balance=F('current_balance') + self.total_amount
+        )
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        # Reverse payment account credit
+        PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+            current_balance=F('current_balance') - self.total_amount
+        )
+        super().delete(*args, **kwargs)
+
+
+# ==============================================================================
+# 9. Loans & Debtors
+# ==============================================================================
+
+class Debtor(models.Model):
+    """People who can receive loans - can be employees or external persons."""
+    name = models.CharField(max_length=100)
+    phone = models.CharField(max_length=20, blank=True)
+    employee = models.OneToOneField(
+        Employee, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='debtor_profile',
+        help_text="Link to employee if this is a staff member"
+    )
+    address = models.TextField(blank=True)
+    id_number = models.CharField(max_length=50, blank=True, help_text="NIN, Voter's Card, etc.")
+    
+    # Balance tracking (positive = they owe us)
+    loan_balance = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    
+    notes = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = "Debtor"
+        verbose_name_plural = "Debtors"
+
+    def __str__(self):
+        if self.employee:
+            return f"{self.name} (Staff)"
+        return self.name
+
+    @property
+    def balance_status(self):
+        if self.loan_balance > 0:
+            return "Owes"
+        elif self.loan_balance < 0:
+            return "Overpaid"
+        return "Settled"
+
+
+class Loan(models.Model):
+    """Records loans given to debtors."""
+    REPAYMENT_MODE_CHOICES = [
+        ('WEEKLY', 'Weekly Deduction'),
+        ('MONTHLY', 'Monthly/Salary Deduction'),
+        ('LUMP_SUM', 'Lump Sum'),
+        ('FLEXIBLE', 'Flexible/As Available'),
+    ]
+    
+    date = models.DateField(default=timezone.now)
+    debtor = models.ForeignKey(Debtor, on_delete=models.PROTECT, related_name='loans')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    payment_account = models.ForeignKey(PaymentAccount, on_delete=models.PROTECT)
+    
+    purpose = models.CharField(max_length=200, blank=True)
+    repayment_mode = models.CharField(max_length=20, choices=REPAYMENT_MODE_CHOICES, default='FLEXIBLE')
+    expected_repayment_date = models.DateField(null=True, blank=True)
+    
+    # Tracking
+    amount_repaid = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), editable=False)
+    is_fully_repaid = models.BooleanField(default=False, editable=False)
+    
+    reference = models.CharField(max_length=100, blank=True)
+    notes = models.TextField(blank=True)
+    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_loans')
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+        verbose_name = "Loan"
+        verbose_name_plural = "Loans"
+
+    def __str__(self):
+        return f"LOAN-{self.pk:05d} | {self.debtor.name} | ₦{self.amount:,.2f}"
+
+    @property
+    def outstanding_balance(self):
+        return self.amount - self.amount_repaid
+
+    @property
+    def repayment_progress(self):
+        if self.amount == 0:
+            return 100
+        return int((self.amount_repaid / self.amount) * 100)
+
+    def clean(self):
+        if self.amount is not None and self.amount <= 0:
+            raise ValidationError({'amount': 'Loan amount must be greater than zero.'})
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_edit = self.pk is not None
+        
+        if is_edit:
+            old = Loan.objects.select_for_update().get(pk=self.pk)
+            # Reverse old: Add back to payment account, subtract from debtor balance
+            PaymentAccount.objects.filter(pk=old.payment_account.pk).update(
+                current_balance=F('current_balance') + old.amount
+            )
+            Debtor.objects.filter(pk=old.debtor.pk).update(
+                loan_balance=F('loan_balance') - old.amount
+            )
+
+        super().save(*args, **kwargs)
+
+        # Apply new: Deduct from payment account, add to debtor balance
+        PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+            current_balance=F('current_balance') - self.amount
+        )
+        Debtor.objects.filter(pk=self.debtor.pk).update(
+            loan_balance=F('loan_balance') + self.amount
+        )
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        # Reverse: Add back to payment account, subtract from debtor balance
+        PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+            current_balance=F('current_balance') + self.amount
+        )
+        Debtor.objects.filter(pk=self.debtor.pk).update(
+            loan_balance=F('loan_balance') - self.amount
+        )
+        super().delete(*args, **kwargs)
+
+    def update_repayment_status(self):
+        """Called by LoanRepayment to update totals."""
+        total_repaid = self.repayments.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+        self.amount_repaid = total_repaid
+        self.is_fully_repaid = (total_repaid >= self.amount)
+        self.save(update_fields=['amount_repaid', 'is_fully_repaid', 'updated_at'])
+
+
+class LoanRepayment(models.Model):
+    """Records repayments made against loans."""
+    date = models.DateField(default=timezone.now)
+    loan = models.ForeignKey(Loan, on_delete=models.PROTECT, related_name='repayments')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    payment_account = models.ForeignKey(PaymentAccount, on_delete=models.PROTECT)
+    
+    repayment_method = models.CharField(max_length=20, choices=[
+        ('CASH', 'Cash'),
+        ('TRANSFER', 'Bank Transfer'),
+        ('SALARY_DEDUCTION', 'Salary Deduction'),
+        ('OTHER', 'Other'),
+    ], default='CASH')
+    
+    reference = models.CharField(max_length=100, blank=True)
+    notes = models.TextField(blank=True)
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+        verbose_name = "Loan Repayment"
+        verbose_name_plural = "Loan Repayments"
+
+    def __str__(self):
+        return f"Repayment: ₦{self.amount:,.2f} for {self.loan.debtor.name}"
+
+    def clean(self):
+        if self.amount is not None and self.amount <= 0:
+            raise ValidationError({'amount': 'Repayment amount must be greater than zero.'})
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_edit = self.pk is not None
+        
+        if is_edit:
+            old = LoanRepayment.objects.select_for_update().get(pk=self.pk)
+            # Reverse old
+            PaymentAccount.objects.filter(pk=old.payment_account.pk).update(
+                current_balance=F('current_balance') - old.amount
+            )
+            Debtor.objects.filter(pk=old.loan.debtor.pk).update(
+                loan_balance=F('loan_balance') + old.amount
+            )
+
+        super().save(*args, **kwargs)
+
+        # Apply new
+        PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+            current_balance=F('current_balance') + self.amount
+        )
+        Debtor.objects.filter(pk=self.loan.debtor.pk).update(
+            loan_balance=F('loan_balance') - self.amount
+        )
+        
+        # Update loan repayment status
+        self.loan.update_repayment_status()
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        loan = self.loan
+        # Reverse
+        PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+            current_balance=F('current_balance') - self.amount
+        )
+        Debtor.objects.filter(pk=loan.debtor.pk).update(
+            loan_balance=F('loan_balance') + self.amount
+        )
+        super().delete(*args, **kwargs)
+        # Update loan status after delete
+        loan.update_repayment_status()
 
 auditlog.register(User)
 auditlog.register(Material)
@@ -1638,3 +1851,16 @@ auditlog.register(ReturnLog)
 auditlog.register(CashRefund)
 auditlog.register(BreakageLog)
 auditlog.register(FuelLog)
+auditlog.register(MaintenanceLog)
+auditlog.register(TransportAsset)
+auditlog.register(TransportRevenue)
+auditlog.register(BankCharge)
+auditlog.register(AccountTransfer)
+auditlog.register(DailyCashClose)
+auditlog.register(VendorPayment)
+auditlog.register(TeamPayment)
+auditlog.register(SandVehicleType)
+auditlog.register(SandSale)
+auditlog.register(Debtor)
+auditlog.register(Loan)
+auditlog.register(LoanRepayment)

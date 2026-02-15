@@ -1,0 +1,413 @@
+{% extends "admin/base_site.html" %} 
+{% load humanize %} 
+
+{% block title %}Transport Dashboard{% endblock %} 
+
+{% block content %}
+<style>
+  :root {
+    --primary: #254451;
+    --primary-dark: #1a3a47;
+    --gold: #d4af37;
+    --gold-light: #f5e6c8;
+    --success: #28a745;
+    --danger: #dc3545;
+    --bg-gray: #f4f6f9;
+    --card-bg: #ffffff;
+    --text-main: #2c3e50;
+    --text-muted: #6c757d;
+    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  }
+
+  .dashboard-container {
+    padding: 30px;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: var(--bg-gray);
+    min-height: 100vh;
+  }
+
+  /* --- HERO HEADER --- */
+  .dashboard-header {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+    color: white;
+    padding: 30px;
+    border-radius: 16px;
+    margin-bottom: 35px;
+    box-shadow: var(--shadow-lg);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .dashboard-header h1 {
+    margin: 0 0 10px 0;
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    font-size: 15px;
+    opacity: 0.9;
+  }
+
+  .week-label {
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(4px);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+
+  /* --- SECTION TITLES --- */
+  .section-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--primary);
+    margin: 0 0 20px 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: #e0e0e0;
+    margin-left: 15px;
+  }
+
+  /* --- STATS GRID --- */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 25px;
+    margin-bottom: 40px;
+  }
+
+  .stat-card {
+    background: var(--card-bg);
+    border-radius: 16px;
+    padding: 25px;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    border: 1px solid rgba(0, 0, 0, 0.03);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .stat-card:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* Color Accents for Cards */
+  .stat-card.blue { border-top: 4px solid #007bff; }
+  .stat-card.green { border-top: 4px solid var(--success); }
+  .stat-card.red { border-top: 4px solid var(--danger); }
+  .stat-card.gold { border-top: 4px solid var(--gold); }
+
+  .stat-card h3 {
+    margin: 0 0 10px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+
+  .stat-card .value {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--text-main);
+    letter-spacing: -1px;
+  }
+
+  .stat-card .value.positive { color: var(--success); }
+  .stat-card .value.negative { color: var(--danger); }
+
+  /* --- ACCOUNTS LIST --- */
+  .accounts-wrapper {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    margin-bottom: 30px;
+  }
+
+  .account-pill {
+    background: white;
+    padding: 10px 20px;
+    border-radius: 50px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid #eee;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    transition: all 0.2s;
+  }
+
+  .account-pill:hover {
+    border-color: var(--gold);
+    transform: translateY(-2px);
+  }
+
+  .account-pill .bank-name { color: var(--text-muted); }
+  .account-pill .amount { font-weight: 700; color: var(--primary); }
+
+  /* --- MODERN TABLE --- */
+  .table-card {
+    background: white;
+    border-radius: 16px;
+    box-shadow: var(--shadow-md);
+    overflow: hidden;
+    margin-bottom: 40px;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  th {
+    background: #f8f9fa;
+    padding: 18px 25px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid #eee;
+  }
+
+  td {
+    padding: 20px 25px;
+    border-bottom: 1px solid #f0f0f0;
+    color: var(--text-main);
+    font-size: 15px;
+    transition: background 0.2s;
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafafa; }
+
+  .truck-name {
+    font-weight: 700;
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .driver-name {
+    display: inline-block;
+    padding: 4px 10px;
+    background: #f0f4f7;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--primary);
+  }
+
+  .text-right { text-align: right; }
+  .text-center { text-align: center; }
+
+  .status-badge {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .status-badge.profit { background: #e6f4ea; color: var(--success); }
+  .status-badge.loss { background: #fce8e6; color: var(--danger); }
+
+  /* --- QUICK ACTIONS --- */
+  .actions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+  }
+
+  .action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 18px;
+    border-radius: 12px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 15px;
+    transition: transform 0.2s, filter 0.2s;
+    color: white !important;
+    box-shadow: var(--shadow-md);
+  }
+
+  .action-btn:hover {
+    transform: translateY(-3px);
+    filter: brightness(110%);
+  }
+
+  .btn-primary { background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); }
+  .btn-gold { background: linear-gradient(135deg, var(--gold) 0%, #b89628 100%); }
+  .btn-green { background: linear-gradient(135deg, var(--success) 0%, #1e7e34 100%); }
+</style>
+
+<div class="dashboard-container">
+  <div class="dashboard-header">
+    <h1>🚛 Jafan Transport Dashboard</h1>
+    <div class="header-meta">
+      <span>Week starting: <strong>{{ week_start|date:"l, d M Y" }}</strong></span>
+      <span class="week-label">Current Week</span>
+    </div>
+  </div>
+
+  <h2 class="section-title">💰 Live Balances</h2>
+  <div class="accounts-wrapper">
+    {% for acc in transport_accounts %}
+    <div class="account-pill">
+      <span class="bank-name">{{ acc.bank_name }}</span>
+      <span class="amount">₦{{ acc.current_balance|intcomma }}</span>
+    </div>
+    {% empty %}
+    <p style="color: #999; font-style: italic">No transport accounts configured.</p>
+    {% endfor %}
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card blue">
+      <h3>Total Transport Balance</h3>
+      <div class="value">₦{{ total_transport_balance|intcomma }}</div>
+    </div>
+    <div class="stat-card gold">
+      <h3>Receivable from Block Industry</h3>
+      <div class="value">₦{{ receivable_from_block|intcomma }}</div>
+    </div>
+    <div class="stat-card green">
+      <h3>Total Weekly Income</h3>
+      <div class="value positive">₦{{ total_income|intcomma }}</div>
+    </div>
+    <div class="stat-card red">
+      <h3>Total Weekly Costs</h3>
+      <div class="value negative">₦{{ total_costs|intcomma }}</div>
+    </div>
+  </div>
+
+  <h2 class="section-title">📊 Weekly Breakdown</h2>
+  <div class="stats-grid">
+    <div class="stat-card green">
+      <h3>Block Delivery Income</h3>
+      <div class="value">₦{{ week_logistics_income|intcomma }}</div>
+    </div>
+    <div class="stat-card green">
+      <h3>External Jobs Income</h3>
+      <div class="value">₦{{ week_external_income|intcomma }}</div>
+    </div>
+    <div class="stat-card red">
+      <h3>Fuel Costs</h3>
+      <div class="value">₦{{ week_fuel|intcomma }}</div>
+    </div>
+    <div class="stat-card red">
+      <h3>Maintenance & Repairs</h3>
+      <div class="value">₦{{ week_maintenance|intcomma }}</div>
+    </div>
+    <div class="stat-card {% if net_profit >= 0 %}green{% else %}red{% endif %}" style="grid-column: span 1; border-top: 4px solid {% if net_profit >= 0 %}var(--success){% else %}var(--danger){% endif %};">
+      <h3>★ Net Profit (Week)</h3>
+      <div class="value {% if net_profit >= 0 %}positive{% else %}negative{% endif %}">
+        ₦{{ net_profit|intcomma }}
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title">⛽ Diesel Efficiency Audit (This Week)</h2>
+  <div class="stats-grid">
+    <div class="stat-card">
+      <h3>Actual Dispensed</h3>
+      <div class="value">{{ fuel_audit.actual_liters|floatformat:1 }} L</div>
+    </div>
+
+    <div class="stat-card">
+      <h3>Expected (Benchmark)</h3>
+      <div class="value">{{ fuel_audit.expected_liters|floatformat:1 }} L</div>
+    </div>
+
+    <div class="stat-card {% if fuel_audit.variance > 0 %}red{% else %}green{% endif %}">
+      <h3>Variance</h3>
+      <div class="value {% if fuel_audit.variance > 0 %}negative{% else %}positive{% endif %}">
+        {% if fuel_audit.variance > 0 %}+{% endif %}{{ fuel_audit.variance|floatformat:1 }} L
+      </div>
+    </div>
+
+    <div class="stat-card gold">
+      <h3>Outside Town Trips</h3>
+      <div class="value">{{ fuel_audit.outside_trips }}</div>
+    </div>
+  </div>
+
+  <h2 class="section-title">🚚 Truck Performance</h2>
+  <div class="table-card">
+    <table>
+      <thead>
+        <tr>
+          <th>Truck Details</th>
+          <th class="text-right">Logistics</th>
+          <th class="text-right">External</th>
+          <th class="text-right">Expenses</th>
+          <th class="text-right">Fuel</th>
+          <th class="text-right">Maint.</th>
+          <th class="text-right">Net Profit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for truck in truck_breakdown %}
+        <tr>
+          <td>
+            <div class="truck-name">{{ truck.name }}</div>
+            <span class="driver-name">👤 {{ truck.driver }}</span>
+          </td>
+          <td class="text-right" style="color: var(--text-muted)">₦{{ truck.logistics_income|intcomma }}</td>
+          <td class="text-right" style="color: var(--text-muted)">₦{{ truck.external_income|intcomma }}</td>
+          <td class="text-right" style="color: #e74c3c">-₦{{ truck.expenses|intcomma }}</td>
+          <td class="text-right" style="color: #e74c3c">-₦{{ truck.fuel|intcomma }}</td>
+          <td class="text-right" style="color: #e74c3c">-₦{{ truck.maintenance|intcomma }}</td>
+          <td class="text-right">
+            <span class="status-badge {% if truck.net_profit >= 0 %}profit{% else %}loss{% endif %}">
+              ₦{{ truck.net_profit|intcomma }}
+            </span>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" class="text-center" style="padding: 40px; color: #999">
+            No active trucks found for this period.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h2 class="section-title">⚡ Quick Actions</h2>
+  <div class="actions-grid">
+    <a href="{% url 'admin:erp_transportrevenue_add' %}" class="action-btn btn-primary">
+      <span>+ Add Revenue</span>
+    </a>
+    <a href="{% url 'admin:erp_accounttransfer_add' %}" class="action-btn btn-gold">
+      <span>+ Record Settlement</span>
+    </a>
+    <a href="{% url 'admin:erp_fuellog_add' %}" class="action-btn btn-green">
+      <span>+ Add Fuel Log</span>
+    </a>
+  </div>
+</div>
+{% endblock %}

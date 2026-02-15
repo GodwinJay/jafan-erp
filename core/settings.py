@@ -42,23 +42,49 @@ UNFOLD = {
             "950": "9 9 11",
         },
     },
-    "SIDEBAR": {
-        "show_search": True,
-        "show_all_applications": True,
-        "navigation": [
-            {
-                "title": "Business Overview",
-                "separator": True,
-                "items": [
-                    {
-                        "title": "Executive Dashboard",
-                        "icon": "analytics",
-                        "link": "/erp/dashboard/",
-                    },
-                ],
-            },
-        ],
-    },
+   'SIDEBAR': {
+    'navigation': [
+        {
+            'title': 'Business Overview',
+            'separator': True,
+            'items': [
+                {
+                    'title': 'Executive Dashboard',
+                    'icon': 'analytics',
+                    'link': '/erp/dashboard/',
+                },
+                {
+                    'title': 'Transport Dashboard',
+                    'icon': 'local_shipping',
+                    'link': '/erp/transport-dashboard/',
+                },
+            ],
+        },
+        {
+            'title': 'Reports',
+            'separator': True,
+            'items': [
+                {
+                    'title': 'Profit & Loss',
+                    'icon': 'trending_up',
+                    'link': '/erp/pl-report/',
+                },
+                {
+                    'title': 'Cash Flow Statement',
+                    'icon': 'account_balance_wallet',
+                    'link': '/erp/cash-flow/',
+                },
+                {
+                    'title': 'Loan Report',
+                    'icon': 'payments',
+                    'link': '/erp/loans/report/',
+                },
+            ],
+        },
+    ],
+    'show_all_applications': True,
+    'show_search': True,
+},
 }
 
 # Application definition
@@ -147,6 +173,9 @@ USE_TZ = True
 # Static files
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
 if not DEBUG:
     STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 

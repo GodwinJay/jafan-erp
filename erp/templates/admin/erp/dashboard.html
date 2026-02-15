@@ -1,22 +1,18 @@
-{% extends "admin/base_site.html" %} {% load humanize %} {% block content %}
+{% extends "admin/base_site.html" %} 
+{% load humanize %} 
+
+{% block content %}
 <div class="px-4 pb-8">
   <div class="mb-8 flex items-center justify-between">
     <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100">
       Performance Overview
-      <span class="text-gray-400 text-lg font-normal"
-        >| {{ stats.month_name }} {{ stats.year }}</span
-      >
+      <span class="text-gray-400 text-lg font-normal">| {{ stats.month_name }} {{ stats.year }}</span>
     </h1>
   </div>
 
-  <!-- KPI Cards -->
   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-    <div
-      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 border-green-500"
-    >
-      <div
-        class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold"
-      >
+    <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 border-green-500">
+      <div class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold">
         Total Revenue
       </div>
       <div class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">
@@ -24,12 +20,8 @@
       </div>
     </div>
 
-    <div
-      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 border-red-500"
-    >
-      <div
-        class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold"
-      >
+    <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 border-red-500">
+      <div class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold">
         Total Expenses
       </div>
       <div class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">
@@ -37,27 +29,17 @@
       </div>
     </div>
 
-    <div
-      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 border-blue-600"
-    >
-      <div
-        class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold"
-      >
+    <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 {% if stats.net_profit >= 0 %}border-blue-600{% else %}border-red-500{% endif %}">
+      <div class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold">
         Net Profit
       </div>
-      <div
-        class="mt-2 text-2xl font-bold {% if stats.net_profit >= 0 %}text-blue-600{% else %}text-red-500{% endif %}"
-      >
+      <div class="mt-2 text-2xl font-bold {% if stats.net_profit >= 0 %}text-blue-600{% else %}text-red-500{% endif %}">
         ₦{{ stats.net_profit|intcomma }}
       </div>
     </div>
 
-    <div
-      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 border-yellow-500"
-    >
-      <div
-        class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold"
-      >
+    <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 border-yellow-500">
+      <div class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold">
         Blocks Produced
       </div>
       <div class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">
@@ -66,24 +48,15 @@
     </div>
   </div>
 
-  <!-- Debtors & Alerts Row -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-    <!-- Top Debtors -->
-    <div
-      class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700"
-    >
-      <div
-        class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
-      >
-        <h3 class="font-bold text-gray-700 dark:text-gray-200">
-          📉 Top Debtors (They Owe Us)
-        </h3>
+    
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700">
+      <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+        <h3 class="font-bold text-gray-700 dark:text-gray-200">📉 Top Debtors (They Owe Us)</h3>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm text-left">
-          <thead
-            class="text-xs text-gray-500 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-300"
-          >
+          <thead class="text-xs text-gray-500 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-300">
             <tr>
               <th class="px-6 py-3">Customer</th>
               <th class="px-6 py-3 text-right">Balance</th>
@@ -91,9 +64,7 @@
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
             {% for debtor in debtors %}
-            <tr
-              class="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
+            <tr class="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
               <td class="px-6 py-4 font-medium text-gray-900 dark:text-white">
                 {{ debtor.name }}
               </td>
@@ -113,16 +84,9 @@
       </div>
     </div>
 
-    <!-- Inventory Alerts -->
-    <div
-      class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700"
-    >
-      <div
-        class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-red-50 dark:bg-red-900/20"
-      >
-        <h3 class="font-bold text-red-700 dark:text-red-400">
-          ⚠️ Inventory Alerts
-        </h3>
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700">
+      <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-red-50 dark:bg-red-900/20">
+        <h3 class="font-bold text-red-700 dark:text-red-400">⚠️ Inventory Alerts</h3>
       </div>
       <div class="p-6">
         {% if not alerts.materials and not alerts.blocks %}
@@ -132,26 +96,15 @@
         {% else %}
         <ul class="space-y-3">
           {% for mat in alerts.materials %}
-          <li
-            class="flex justify-between items-center p-3 bg-red-50 dark:bg-red-900/10 rounded-md border border-red-100 dark:border-red-800"
-          >
-            <span class="text-red-700 dark:text-red-300 font-medium"
-              >{{ mat.get_name_display }}</span
-            >
-            <span class="text-red-800 dark:text-red-200 font-bold text-sm"
-              >{{ mat.current_stock }} Left</span
-            >
+          <li class="flex justify-between items-center p-3 bg-red-50 dark:bg-red-900/10 rounded-md border border-red-100 dark:border-red-800">
+            <span class="text-red-700 dark:text-red-300 font-medium">{{ mat.get_name_display }}</span>
+            <span class="text-red-800 dark:text-red-200 font-bold text-sm">{{ mat.current_stock }} Left</span>
           </li>
-          {% endfor %} {% for block in alerts.blocks %}
-          <li
-            class="flex justify-between items-center p-3 bg-orange-50 dark:bg-orange-900/10 rounded-md border border-orange-100 dark:border-orange-800"
-          >
-            <span class="text-orange-700 dark:text-orange-300 font-medium"
-              >{{ block.name }}</span
-            >
-            <span class="text-orange-800 dark:text-orange-200 font-bold text-sm"
-              >{{ block.current_stock }} Left</span
-            >
+          {% endfor %}
+          {% for block in alerts.blocks %}
+          <li class="flex justify-between items-center p-3 bg-orange-50 dark:bg-orange-900/10 rounded-md border border-orange-100 dark:border-orange-800">
+            <span class="text-orange-700 dark:text-orange-300 font-medium">{{ block.name }}</span>
+            <span class="text-orange-800 dark:text-orange-200 font-bold text-sm">{{ block.current_stock }} Left</span>
           </li>
           {% endfor %}
         </ul>
@@ -160,30 +113,20 @@
     </div>
   </div>
 
-  <!-- Recent Supplies -->
-  <div
-    class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700 mb-8"
-  >
+  <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700 mb-8">
     <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-      <h3 class="font-bold text-gray-700 dark:text-gray-200">
-        🚚 Recent Supplies
-      </h3>
+      <h3 class="font-bold text-gray-700 dark:text-gray-200">🚚 Recent Supplies</h3>
     </div>
     <div class="divide-y divide-gray-100 dark:divide-gray-700">
       {% for log in activity %}
-      <div
-        class="p-4 hover:bg-gray-50 dark:hover:bg-gray-700 flex justify-between items-center"
-      >
+      <div class="p-4 hover:bg-gray-50 dark:hover:bg-gray-700 flex justify-between items-center">
         <div>
           <div class="font-bold text-gray-800 dark:text-gray-100">
             {{ log.customer.name }}
           </div>
           <div class="text-sm text-gray-500 dark:text-gray-400">
             {{ log.quantity_delivered }} x {{ log.block_type.name }}
-            <span
-              class="text-xs bg-gray-100 dark:bg-gray-600 px-2 py-0.5 rounded ml-2"
-              >{{ log.get_delivery_type_display }}</span
-            >
+            <span class="text-xs bg-gray-100 dark:bg-gray-600 px-2 py-0.5 rounded ml-2">{{ log.get_delivery_type_display }}</span>
           </div>
         </div>
         <div class="text-right">
@@ -199,193 +142,163 @@
     </div>
   </div>
 
-  <!-- Export Section -->
-  <div
-    class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700"
-  >
+  <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700 mb-8">
+    <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/20">
+      <h3 class="font-bold text-blue-800 dark:text-blue-300">🚛 Jafan Transport Analysis (Profit Center)</h3>
+    </div>
+
+    <div class="p-6">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+          <div class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">Transport Revenue</div>
+          <div class="text-xl font-bold text-gray-900 dark:text-white mt-1">₦{{ transport.revenue|intcomma }}</div>
+          <div class="text-xs text-gray-400 mt-1">Delivery Fees + Surcharges</div>
+        </div>
+
+        <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+          <div class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">Fuel & Maint. Costs</div>
+          <div class="text-xl font-bold text-red-600 dark:text-red-400 mt-1">₦{{ transport.total_expense|intcomma }}</div>
+          <div class="text-xs text-gray-400 mt-1">Diesel: ₦{{ transport.fuel_cost|intcomma }}</div>
+        </div>
+
+        <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+          <div class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">Net Profit</div>
+          <div class="text-xl font-bold {% if transport.net_profit >= 0 %}text-green-600 dark:text-green-400{% else %}text-red-500 dark:text-red-400{% endif %} mt-1">
+            ₦{{ transport.net_profit|intcomma }}
+          </div>
+          <div class="text-xs text-gray-400 mt-1">Revenue - Expenses</div>
+        </div>
+      </div>
+
+      <div class="border-t border-gray-100 dark:border-gray-600 pt-6">
+        <h4 class="font-semibold text-gray-700 dark:text-gray-300 mb-4 flex items-center">
+          ⛽ Diesel Efficiency Audit
+          <span class="ml-2 text-xs bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 px-2 py-1 rounded-full">Formula: Expected vs Actual</span>
+        </h4>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
+          <div class="p-3 border dark:border-gray-600 rounded-md">
+            <div class="text-2xl font-bold text-gray-800 dark:text-gray-100">
+              {{ transport.fuel_audit.actual_liters|floatformat:1 }} L
+            </div>
+            <div class="text-xs text-gray-500 dark:text-gray-400 uppercase mt-1">Actual Dispensed</div>
+          </div>
+
+          <div class="p-3 border dark:border-gray-600 rounded-md">
+            <div class="text-2xl font-bold text-gray-600 dark:text-gray-400">
+              {{ transport.fuel_audit.expected_liters|floatformat:1 }} L
+            </div>
+            <div class="text-xs text-gray-500 dark:text-gray-400 uppercase mt-1">Expected (Benchmark)</div>
+          </div>
+
+          <div class="p-3 border rounded-md {% if transport.fuel_audit.variance > 0 %}bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800{% else %}bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800{% endif %}">
+            <div class="text-2xl font-bold {% if transport.fuel_audit.variance > 0 %}text-red-600 dark:text-red-400{% else %}text-green-600 dark:text-green-400{% endif %}">
+              {% if transport.fuel_audit.variance > 0 %}+{% endif %}{{ transport.fuel_audit.variance|floatformat:1 }} L
+            </div>
+            <div class="text-xs {% if transport.fuel_audit.variance > 0 %}text-red-600 dark:text-red-400{% else %}text-green-600 dark:text-green-400{% endif %} uppercase mt-1">
+              Variance
+            </div>
+          </div>
+
+          <div class="p-3 border dark:border-yellow-800 rounded-md bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200">
+            <div class="text-2xl font-bold text-yellow-700 dark:text-yellow-400">
+              {{ transport.fuel_audit.outside_trips }}
+            </div>
+            <div class="text-xs text-yellow-700 dark:text-yellow-400 uppercase mt-1">Outside Town Trips</div>
+          </div>
+        </div>
+
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-4 italic">
+          * <span class="font-bold text-red-500 dark:text-red-400">Positive Variance</span> means drivers used MORE fuel than expected. Check "Outside Town Trips" to see if it is justified.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700">
     <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-      <h3 class="font-bold text-gray-700 dark:text-gray-200">
-        📊 Export Reports
-      </h3>
+      <h3 class="font-bold text-gray-700 dark:text-gray-200">📊 Export Reports</h3>
     </div>
     <div class="p-6">
-      <!-- Date Filter Form -->
-      <div
-        class="mb-6 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700"
-      >
+      <div class="mb-6 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
         <div class="flex flex-wrap gap-4 items-end">
           <div>
-            <label
-              class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1"
-              >Start Date</label
-            >
-            <input
-              type="date"
-              id="start_date"
-              name="start_date"
-              class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
-            />
+            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Start Date</label>
+            <input type="date" id="start_date" name="start_date" class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
           </div>
           <div>
-            <label
-              class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1"
-              >End Date</label
-            >
-            <input
-              type="date"
-              id="end_date"
-              name="end_date"
-              class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
-            />
+            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">End Date</label>
+            <input type="date" id="end_date" name="end_date" class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
           </div>
-          <button
-            type="button"
-            onclick="applyDateFilters()"
-            class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
-          >
+          <button type="button" onclick="applyDateFilters()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
             Apply Dates
           </button>
-          <button
-            type="button"
-            onclick="clearDateFilters()"
-            class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-md text-sm font-medium transition-colors"
-          >
+          <button type="button" onclick="clearDateFilters()" class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-md text-sm font-medium transition-colors">
             Clear
           </button>
-          <span
-            id="date_status"
-            class="text-sm text-green-600 dark:text-green-400 font-medium ml-2"
-          ></span>
+          <span id="date_status" class="text-sm text-green-600 dark:text-green-400 font-medium ml-2"></span>
         </div>
         <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
           Leave empty to export current month's data.
         </p>
       </div>
 
-      <!-- Export Buttons Grid -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <!-- Sales -->
-        <div
-          class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow"
-        >
+        <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow">
           <div class="flex items-center mb-3">
             <span class="text-2xl mr-2">💰</span>
-            <h4 class="font-semibold text-gray-800 dark:text-gray-200">
-              Sales Report
-            </h4>
+            <h4 class="font-semibold text-gray-800 dark:text-gray-200">Sales Report</h4>
           </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            All supplies and deliveries
-          </p>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">All supplies and deliveries</p>
           <div class="flex gap-2">
-            <a
-              href="/erp/export/sales/csv/"
-              class="export-link px-3 py-1.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded text-sm hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
-              >CSV</a
-            >
-            <a
-              href="/erp/export/sales/excel/"
-              class="export-link px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 transition-colors"
-              >Excel</a
-            >
+            <a href="/erp/export/sales/csv/" class="export-link px-3 py-1.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded text-sm hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors">CSV</a>
+            <a href="/erp/export/sales/excel/" class="export-link px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 transition-colors">Excel</a>
           </div>
         </div>
 
-        <!-- Expenses -->
-        <div
-          class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow"
-        >
+        <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow">
           <div class="flex items-center mb-3">
             <span class="text-2xl mr-2">📉</span>
-            <h4 class="font-semibold text-gray-800 dark:text-gray-200">
-              Expenses Report
-            </h4>
+            <h4 class="font-semibold text-gray-800 dark:text-gray-200">Expenses Report</h4>
           </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            All costs including auto-synced procurement
-          </p>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">All costs including auto-synced procurement</p>
           <div class="flex gap-2">
-            <a
-              href="/erp/export/expenses/csv/"
-              class="export-link px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded text-sm hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
-              >CSV</a
-            >
-            <a
-              href="/erp/export/expenses/excel/"
-              class="export-link px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 transition-colors"
-              >Excel</a
-            >
+            <a href="/erp/export/expenses/csv/" class="export-link px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded text-sm hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors">CSV</a>
+            <a href="/erp/export/expenses/excel/" class="export-link px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 transition-colors">Excel</a>
           </div>
         </div>
 
-        <!-- Production -->
-        <div
-          class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow"
-        >
+        <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow">
           <div class="flex items-center mb-3">
             <span class="text-2xl mr-2">🏭</span>
-            <h4 class="font-semibold text-gray-800 dark:text-gray-200">
-              Production Report
-            </h4>
+            <h4 class="font-semibold text-gray-800 dark:text-gray-200">Production Report</h4>
           </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            Blocks produced by team & machine
-          </p>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Blocks produced by team & machine</p>
           <div class="flex gap-2">
-            <a
-              href="/erp/export/production/csv/"
-              class="export-link px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-sm hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
-              >CSV</a
-            >
-            <a
-              href="/erp/export/production/excel/"
-              class="export-link px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors"
-              >Excel</a
-            >
+            <a href="/erp/export/production/csv/" class="export-link px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-sm hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors">CSV</a>
+            <a href="/erp/export/production/excel/" class="export-link px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors">Excel</a>
           </div>
         </div>
 
-        <!-- Customer Ledger -->
-        <div
-          class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow"
-        >
+        <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow">
           <div class="flex items-center mb-3">
             <span class="text-2xl mr-2">👥</span>
-            <h4 class="font-semibold text-gray-800 dark:text-gray-200">
-              Customer Ledger
-            </h4>
+            <h4 class="font-semibold text-gray-800 dark:text-gray-200">Customer Ledger</h4>
           </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            All customers with transaction history
-          </p>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">All customers with transaction history</p>
           <div class="flex gap-2">
-            <a
-              href="/erp/export/customers/"
-              class="export-link px-3 py-1.5 bg-purple-600 text-white rounded text-sm hover:bg-purple-700 transition-colors"
-              >Excel</a
-            >
+            <a href="/erp/export/customers/" class="export-link px-3 py-1.5 bg-purple-600 text-white rounded text-sm hover:bg-purple-700 transition-colors">Excel</a>
           </div>
         </div>
 
-        <!-- Inventory -->
-        <div
-          class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow"
-        >
+        <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow">
           <div class="flex items-center mb-3">
             <span class="text-2xl mr-2">📦</span>
-            <h4 class="font-semibold text-gray-800 dark:text-gray-200">
-              Inventory Status
-            </h4>
+            <h4 class="font-semibold text-gray-800 dark:text-gray-200">Inventory Status</h4>
           </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            Current stock levels (Materials & Blocks)
-          </p>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Current stock levels (Materials & Blocks)</p>
           <div class="flex gap-2">
-            <a
-              href="/erp/export/inventory/"
-              class="px-3 py-1.5 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 transition-colors"
-              >Excel</a
-            >
+            <a href="/erp/export/inventory/" class="px-3 py-1.5 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 transition-colors">Excel</a>
           </div>
         </div>
       </div>
@@ -417,9 +330,9 @@
     });
 
     // Show confirmation
-    document.getElementById(
-      "date_status"
-    ).textContent = `✓ Dates applied: ${startDate} to ${endDate}`;
+    const statusEl = document.getElementById("date_status");
+    statusEl.textContent = `✓ Dates applied: ${startDate} to ${endDate}`;
+    statusEl.className = "text-sm text-green-600 dark:text-green-400 font-medium ml-2";
   }
 
   function clearDateFilters() {
@@ -434,10 +347,12 @@
       link.href = url.toString();
     });
 
-    document.getElementById("date_status").textContent =
-      "Dates cleared. Using current month.";
+    const statusEl = document.getElementById("date_status");
+    statusEl.textContent = "Dates cleared. Using current month.";
+    statusEl.className = "text-sm text-gray-600 dark:text-gray-400 font-medium ml-2";
+    
     setTimeout(() => {
-      document.getElementById("date_status").textContent = "";
+      statusEl.textContent = "";
     }, 3000);
   }
 </script>

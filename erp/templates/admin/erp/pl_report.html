@@ -1,0 +1,150 @@
+{% extends "admin/base_site.html" %}
+{% load humanize %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<style>
+    .pl-container { max-width: 900px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; }
+    .pl-header { background: linear-gradient(135deg, #254451, #1a3a47); color: white; padding: 25px; border-radius: 10px; margin-bottom: 20px; text-align: center; }
+    .pl-header h1 { margin: 0 0 10px 0; font-size: 28px; }
+    .pl-header .company { color: #D4AF37; font-size: 18px; margin-bottom: 5px; }
+    .pl-header .period { font-size: 14px; opacity: 0.9; }
+    
+    .filter-box { background: #f8f9fa; padding: 15px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 15px; align-items: end; flex-wrap: wrap; }
+    .filter-box label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 13px; }
+    .filter-box input { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; }
+    .filter-box button { background: #254451; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
+    
+    .pl-statement { background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow: hidden; }
+    .pl-section { padding: 20px; border-bottom: 1px solid #eee; }
+    .pl-section:last-child { border-bottom: none; }
+    .pl-section h3 { margin: 0 0 15px 0; color: #254451; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; }
+    
+    .pl-row { display: flex; justify-content: space-between; padding: 8px 0; }
+    .pl-row.indent { padding-left: 20px; color: #666; font-size: 14px; }
+    .pl-row.total { border-top: 2px solid #254451; margin-top: 10px; padding-top: 15px; font-weight: bold; font-size: 18px; }
+    .pl-row.subtotal { border-top: 1px solid #ddd; margin-top: 10px; padding-top: 10px; font-weight: bold; }
+    .pl-row .amount { font-family: 'Courier New', monospace; }
+    .pl-row .amount.positive { color: #28a745; }
+    .pl-row .amount.negative { color: #dc3545; }
+    
+    .pl-highlight { background: linear-gradient(135deg, #254451, #1a3a47); color: white; padding: 25px; }
+    .pl-highlight h3 { color: #D4AF37; margin-bottom: 20px; }
+    .pl-highlight .pl-row { color: white; }
+    .pl-highlight .pl-row.total { border-top-color: #D4AF37; }
+    .pl-highlight .amount { color: #D4AF37; font-size: 24px; }
+    
+    .margin-badge { display: inline-block; background: #D4AF37; color: #254451; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-left: 10px; }
+    
+    .export-buttons { margin-top: 20px; display: flex; gap: 10px; justify-content: center; }
+    .export-buttons a { padding: 12px 25px; border-radius: 4px; text-decoration: none; font-weight: bold; }
+    .export-buttons a.excel { background: #28a745; color: white; }
+    .export-buttons a.pdf { background: #dc3545; color: white; }
+</style>
+
+<div class="pl-container">
+    <div class="pl-header">
+        <div class="company">JAFAN STANDARD BLOCK INDUSTRY</div>
+        <h1>Profit & Loss Statement</h1>
+        <div class="period">{{ start_date|date:"d F Y" }} - {{ end_date|date:"d F Y" }}</div>
+    </div>
+    
+    <!-- Date Filter -->
+    <form method="get" class="filter-box">
+        <div>
+            <label>Start Date</label>
+            <input type="date" name="start_date" value="{{ start_date|date:'Y-m-d' }}">
+        </div>
+        <div>
+            <label>End Date</label>
+            <input type="date" name="end_date" value="{{ end_date|date:'Y-m-d' }}">
+        </div>
+        <button type="submit">🔍 Update</button>
+    </form>
+    
+    <div class="pl-statement">
+        <!-- Revenue Section -->
+        <div class="pl-section">
+            <h3>📈 Revenue</h3>
+            {% for item in revenue.by_block_type %}
+            <div class="pl-row indent">
+                <span>{{ item.block_type__name }} ({{ item.quantity|intcomma }} blocks)</span>
+                <span class="amount">₦{{ item.revenue|intcomma }}</span>
+            </div>
+            {% endfor %}
+            <div class="pl-row subtotal">
+                <span>Total Block Sales</span>
+                <span class="amount">₦{{ revenue.block_sales|intcomma }}</span>
+            </div>
+            <div class="pl-row indent" style="color: #999; font-style: italic;">
+                <span>Logistics Income (to Transport)</span>
+                <span class="amount">₦{{ revenue.logistics_income|intcomma }}</span>
+            </div>
+            <div class="pl-row total">
+                <span>TOTAL REVENUE</span>
+                <span class="amount positive">₦{{ revenue.total|intcomma }}</span>
+            </div>
+        </div>
+        
+        <!-- COGS Section -->
+        <div class="pl-section">
+            <h3>📦 Cost of Goods Sold</h3>
+            {% for item in cogs.by_block_type %}
+            <div class="pl-row indent">
+                <span>{{ item.block_type__name }} ({{ item.quantity|intcomma }} blocks)</span>
+                <span class="amount">₦{{ item.cogs|intcomma }}</span>
+            </div>
+            {% endfor %}
+            <div class="pl-row total">
+                <span>TOTAL COGS</span>
+                <span class="amount negative">₦{{ cogs.total|intcomma }}</span>
+            </div>
+        </div>
+        
+        <!-- Gross Profit -->
+        <div class="pl-section" style="background: #e8f5e9;">
+            <div class="pl-row total" style="border: none; padding: 0;">
+                <span>GROSS PROFIT <span class="margin-badge">{{ gross_margin }}% margin</span></span>
+                <span class="amount {% if gross_profit >= 0 %}positive{% else %}negative{% endif %}">₦{{ gross_profit|intcomma }}</span>
+            </div>
+        </div>
+        
+        <!-- Operating Expenses -->
+        <div class="pl-section">
+            <h3>💸 Operating Expenses</h3>
+            {% for cat, amount in expenses.breakdown.items %}
+            <div class="pl-row indent">
+                <span>{{ cat }}</span>
+                <span class="amount">₦{{ amount|intcomma }}</span>
+            </div>
+            {% empty %}
+            <div class="pl-row indent" style="color: #999;">No operating expenses recorded</div>
+            {% endfor %}
+            <div class="pl-row total">
+                <span>TOTAL OPERATING EXPENSES</span>
+                <span class="amount negative">₦{{ expenses.total|intcomma }}</span>
+            </div>
+        </div>
+        
+        <!-- Net Profit -->
+        <div class="pl-section pl-highlight">
+            <h3>★ NET PROFIT</h3>
+            <div class="pl-row total" style="border: none; padding: 0;">
+                <span>NET PROFIT BEFORE TAX <span class="margin-badge">{{ net_margin }}% margin</span></span>
+                <span class="amount">₦{{ net_profit|intcomma }}</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Export Buttons -->
+    <div class="export-buttons">
+        <a href="{% url 'export_pl_excel' %}?start_date={{ start_date|date:'Y-m-d' }}&end_date={{ end_date|date:'Y-m-d' }}" class="excel">
+            📊 Export to Excel
+        </a>
+        <a href="{% url 'generate_pl_pdf' %}?start_date={{ start_date|date:'Y-m-d' }}&end_date={{ end_date|date:'Y-m-d' }}" class="pdf">
+            📄 Download PDF
+        </a>
+    </div>
+</div>
+{% endblock %}

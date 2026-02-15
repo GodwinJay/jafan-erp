@@ -1,54 +1,204 @@
-{% extends "admin/base_site.html" %} {% block content %}
-<div id="content-main">
-  <div class="module">
-    <h2>Select Statement Period for {{ customer.name }}</h2>
-    <p>Current Balance: <strong>₦{{ customer.account_balance }}</strong></p>
+{% extends "admin/base_site.html" %} {% block title %}Generate Customer
+Statement{% endblock %} {% block content %}
+<style>
+  .date-picker-container {
+    max-width: 500px;
+    margin: 40px auto;
+    padding: 30px;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 2px 15px rgba(0, 0, 0, 0.1);
+  }
+  .date-picker-header {
+    text-align: center;
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 2px solid #d4af37;
+  }
+  .date-picker-header h1 {
+    color: #254451;
+    font-size: 24px;
+    margin: 0 0 10px 0;
+  }
+  .date-picker-header .sub-text {
+    font-size: 16px;
+    color: #666;
+  }
+  .date-picker-header .account-badges {
+    margin-top: 10px;
+  }
+  .date-picker-header .badge {
+    display: inline-block;
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    margin: 3px;
+    font-weight: 600;
+  }
+  .date-picker-header .badge-type {
+    background: #e8edef;
+    color: #254451;
+  }
+  .balance-info {
+    background: #f0f7f4;
+    border: 1px solid #28a745;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 25px;
+    text-align: center;
+  }
+  .balance-info.negative {
+    background: #fff5f5;
+    border-color: #dc3545;
+  }
+  .balance-info .label {
+    font-size: 12px;
+    color: #666;
+    text-transform: uppercase;
+  }
+  .balance-info .amount {
+    font-size: 28px;
+    font-weight: 700;
+    color: #28a745;
+  }
+  .balance-info.negative .amount {
+    color: #dc3545;
+  }
+  .account-details {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 25px;
+    font-size: 14px;
+  }
+  .account-details .row {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 0;
+    border-bottom: 1px solid #eee;
+  }
+  .account-details .row:last-child {
+    border-bottom: none;
+  }
+  .account-details .label {
+    color: #666;
+  }
+  .account-details .value {
+    font-weight: 600;
+    color: #254451;
+  }
+  .form-group {
+    margin-bottom: 20px;
+  }
+  .form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #254451;
+  }
+  .form-group input[type="date"] {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 16px;
+    box-sizing: border-box;
+    font-family: inherit;
+  }
+  .form-group input[type="date"]:focus {
+    border-color: #d4af37;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.2);
+  }
+  .btn-generate {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #254451 0%, #1a3a47 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .btn-generate:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(37, 68, 81, 0.3);
+  }
+  .btn-back {
+    display: block;
+    text-align: center;
+    margin-top: 15px;
+    color: #666;
+    text-decoration: none;
+    font-size: 14px;
+    transition: color 0.2s;
+  }
+  .btn-back:hover {
+    color: #254451;
+  }
+</style>
 
-    <form method="post" action="">
-      {% csrf_token %}
-      <div class="form-row">
-        <label for="start_date" style="display: block; margin-bottom: 5px"
-          >Start Date:</label
-        >
-        <input
-          type="date"
-          name="start_date"
-          id="start_date"
-          value="{{ default_start }}"
-          required
-          style="padding: 8px; border: 1px solid #ccc; border-radius: 4px"
-        />
-      </div>
-      <br />
-      <div class="form-row">
-        <label for="end_date" style="display: block; margin-bottom: 5px"
-          >End Date:</label
-        >
-        <input
-          type="date"
-          name="end_date"
-          id="end_date"
-          value="{{ today }}"
-          required
-          style="padding: 8px; border: 1px solid #ccc; border-radius: 4px"
-        />
-      </div>
-      <br />
-      <div class="submit-row" style="text-align: left; padding-left: 0">
-        <input
-          type="submit"
-          value="Generate PDF Statement"
-          class="default"
-          style="padding: 10px 20px"
-        />
-        <a
-          href="/admin/erp/customer/"
-          class="button"
-          style="margin-left: 10px; padding: 10px 20px; background: #79aec8"
-          >Cancel</a
-        >
-      </div>
-    </form>
+<div class="date-picker-container">
+  <div class="date-picker-header">
+    <h1>📊 Customer Statement</h1>
+    <div class="sub-text">
+      Generate report for <strong>{{ customer.name }}</strong>
+    </div>
+    <div class="account-badges">
+      <span class="badge badge-type">Customer Account</span>
+    </div>
   </div>
+
+  <div
+    class="balance-info {% if customer.account_balance < 0 %}negative{% endif %}"
+  >
+    <div class="label">Current Balance</div>
+    <div class="amount">₦{{ customer.account_balance|floatformat:2 }}</div>
+  </div>
+
+  <div class="account-details">
+    <div class="row">
+      <span class="label">Customer Name</span>
+      <span class="value">{{ customer.name }}</span>
+    </div>
+    <div class="row">
+      <span class="label">Customer ID</span>
+      <span class="value">#{{ customer.id }}</span>
+    </div>
+  </div>
+
+  <form method="post" action="">
+    {% csrf_token %}
+
+    <div class="form-group">
+      <label for="start_date">Start Date</label>
+      <input
+        type="date"
+        id="start_date"
+        name="start_date"
+        value="{{ default_start }}"
+        required
+      />
+    </div>
+
+    <div class="form-group">
+      <label for="end_date">End Date</label>
+      <input
+        type="date"
+        id="end_date"
+        name="end_date"
+        value="{{ today }}"
+        required
+      />
+    </div>
+
+    <button type="submit" class="btn-generate">
+      📄 Generate PDF Statement
+    </button>
+  </form>
+
+  <a href="/admin/erp/customer/" class="btn-back"> ← Back to Customer List </a>
 </div>
 {% endblock %}

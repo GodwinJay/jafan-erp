@@ -70,6 +70,9 @@ def register_unicode_font():
     FONT_REGISTERED = True
     return 'Helvetica'
 
+register_unicode_font()
+
+
 
 # ==============================================================================
 # BRAND COLORS
@@ -921,6 +924,170 @@ class ReceiptGenerator(PDFGenerator):
         
         doc.build(elements)
         return self._create_response(buffer, f'Receipt_RCP-{payment.pk:05d}.pdf')
+    
+
+
+class SandSaleReceiptGenerator(PDFGenerator):
+    """Generate professional branded Receipt for Sand Sales on A5."""
+    
+    def generate(self, sale):
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A5,
+            topMargin=6*mm, bottomMargin=6*mm,
+            leftMargin=8*mm, rightMargin=8*mm
+        )
+        elements = []
+        
+        # Header - Use Branded Header
+        elements.extend(self._get_branded_header(width_override=doc.width))
+        
+        # Document Title
+        title_table = Table(
+            [['SAND SALE RECEIPT']],
+            colWidths=[doc.width]
+        )
+        title_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), NAVY_BLUE),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 14),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(title_table)
+        elements.append(Spacer(1, 2*mm))
+        
+        # Receipt Info
+        receipt_data = [
+            ['Receipt No:', f'SND-{sale.pk:05d}'],
+            ['Date:', sale.date.strftime('%d/%m/%Y')],
+        ]
+        receipt_table = Table(receipt_data, colWidths=[70, 140])
+        receipt_table.setStyle(TableStyle([
+            *self._get_base_table_style(),
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+            ('TEXTCOLOR', (0, 0), (0, -1), NAVY_BLUE),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('FONTSIZE', (1, 0), (1, 0), 11),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ]))
+        elements.append(receipt_table)
+        elements.append(Spacer(1, 2*mm))
+        
+        # Customer Info (if provided)
+        if sale.customer_name:
+            elements.append(Paragraph("SOLD TO:", self.styles['SectionHeader']))
+            customer_data = [
+                ['Customer:', sale.customer_name],
+                ['Phone:', sale.customer_phone or 'N/A'],
+            ]
+            customer_table = Table(customer_data, colWidths=[60, 150])
+            customer_table.setStyle(TableStyle([
+                *self._get_base_table_style(),
+                ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BACKGROUND', (0, 0), (-1, -1), LIGHT_NAVY),
+                ('BOX', (0, 0), (-1, -1), 1, NAVY_BLUE),
+            ]))
+            elements.append(customer_table)
+            elements.append(Spacer(1, 3*mm))
+        
+        # Sale Details
+        elements.append(Paragraph("SALE DETAILS:", self.styles['SectionHeader']))
+        details_data = [
+            ['Vehicle Type:', sale.vehicle_type.name],
+            ['Quantity:', f'{sale.quantity} vehicle(s)'],
+            ['Unit Price:', self._format_currency(sale.unit_price)],
+        ]
+        details_table = Table(details_data, colWidths=[80, 130])
+        details_table.setStyle(TableStyle([
+            *self._get_base_table_style(),
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BACKGROUND', (0, 0), (-1, -1), LIGHT_NAVY),
+            ('BOX', (0, 0), (-1, -1), 1, NAVY_BLUE),
+        ]))
+        elements.append(details_table)
+        elements.append(Spacer(1, 3*mm))
+        
+        # Amount Box (Gold Highlighted - Main Focus)
+        elements.append(Paragraph("TOTAL AMOUNT:", self.styles['SectionHeader']))
+        
+        amount_display = self._format_currency(sale.total_amount)
+        amount_words = self._amount_in_words(sale.total_amount)
+        
+        amount_data = [
+            [amount_display],
+            [f"({amount_words})"],
+        ]
+        amount_table = Table(amount_data, colWidths=[doc.width])
+        amount_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (0, 0), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (0, 0), 22),
+            ('FONTNAME', (0, 1), (0, 1), UNICODE_FONT),
+            ('FONTSIZE', (0, 1), (0, 1), 8),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('TEXTCOLOR', (0, 0), (0, 0), NAVY_BLUE),
+            ('TEXTCOLOR', (0, 1), (0, 1), colors.gray),
+            ('BACKGROUND', (0, 0), (-1, -1), LIGHT_GOLD),
+            ('BOX', (0, 0), (-1, -1), 2, GOLD),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(amount_table)
+        elements.append(Spacer(1, 2*mm))
+        
+        # Payment Details
+        elements.append(Paragraph("PAYMENT DETAILS:", self.styles['SectionHeader']))
+        payment_data = [
+            ['Payment Account:', sale.payment_account.bank_name],
+            ['Status:', 'PAID'],
+        ]
+        payment_table = Table(payment_data, colWidths=[80, 130])
+        payment_table.setStyle(TableStyle([
+            *self._get_base_table_style(),
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ]))
+        elements.append(payment_table)
+        elements.append(Spacer(1, 2*mm))
+        
+        # Remark
+        if sale.remark:
+            elements.append(Spacer(1, 2*mm))
+            elements.append(Paragraph(f"<b>Remark:</b> {sale.remark}", self.styles['SmallText']))
+        
+        # Signature Section
+        elements.append(Spacer(1, 5*mm))
+        
+        recorded_by_text = "Processed By: " + (sale.recorded_by.get_full_name() or sale.recorded_by.username if sale.recorded_by else 'N/A')
+        
+        sig_table_data = [
+            ['', '', ''],
+            [recorded_by_text, '', 'Authorized Signatory & Stamp']
+        ]
+        
+        sig_table = Table(sig_table_data, colWidths=[doc.width*0.4, doc.width*0.2, doc.width*0.4])
+        sig_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 1), (-1, 1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 1), (-1, 1), 8),
+            ('TEXTCOLOR', (0, 1), (-1, 1), NAVY_BLUE),
+            ('LINEABOVE', (0, 1), (0, 1), 1, colors.black),
+            ('LINEABOVE', (2, 1), (2, 1), 1, colors.black),
+            ('ALIGN', (0, 1), (0, 1), 'LEFT'),
+            ('ALIGN', (2, 1), (2, 1), 'RIGHT'),
+            ('TOPPADDING', (0, 1), (-1, 1), 4),
+            ('ROWHEIGHT', (0,0), (0,0), 15*mm),
+        ]))
+        elements.append(sig_table)
+        
+        # Footer
+        elements.extend(self._get_footer())
+        
+        doc.build(elements)
+        return self._create_response(buffer, f'SandReceipt_SND-{sale.pk:05d}.pdf')
 
 
 # ==============================================================================
@@ -979,7 +1146,7 @@ class CustomerStatementGenerator(PDFGenerator):
         # Customer Info Box
         customer_data = [
             ['Customer:', customer.name, 'Phone:', customer.phone],
-            ['Type:', customer.get_customer_type_display(), 'Email:', customer.email or 'N/A'],
+            ['Type:', customer.customer_type or 'N/A', 'Email:', customer.email or 'N/A'],
         ]
         customer_table = Table(customer_data, colWidths=[60, 150, 50, 120])
         customer_table.setStyle(TableStyle([
@@ -1158,82 +1325,82 @@ class CustomerStatementGenerator(PDFGenerator):
 
 
 class ProformaInvoiceGenerator(PDFGenerator):
-    """
-    Generate professional Proforma Invoice / Quotation PDF on A4.
-    
-    Layout:
-    - Header: Logo & Name (Left), Address & Contact (Centered below).
-    - Title Bar: Navy Blue "PROFORMA INVOICE".
-    - Info Box: Light Blue box with ID, Date, Validity.
-    - Body: Compact layout to fit on one page.
-    """
-    
     def generate(self, sales_order):
         from .models import PaymentAccount
-        
+
         # 1. Setup Document with tight margins to maximize space
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
             buffer, pagesize=A4,
-            topMargin=8*mm, bottomMargin=8*mm,
-            leftMargin=10*mm, rightMargin=10*mm
+            topMargin=8 * mm, bottomMargin=8 * mm,
+            leftMargin=10 * mm, rightMargin=10 * mm
         )
         elements = []
-        
+
+        # --- LOGIC SWITCH: Is this a Final Invoice or still a Proforma? ---
+        is_final = sales_order.status == 'COMPLETED'
+
+        # Define Labels based on status
+        doc_title = "FINAL INVOICE" if is_final else "PROFORMA INVOICE"
+        id_prefix = "INV" if is_final else "PF"
+        id_label = "Invoice No:" if is_final else "Proforma No:"
+        deliver_label = "DELIVERED TO:" if is_final else "DELIVER TO:"
+        date_label_2 = "Due Date:" if is_final else "Valid Until:"
+
         # =========================================================
-        # 1. CUSTOM HEADER (Updated to match Image 2)
+        # 1. CUSTOM HEADER
         # =========================================================
-        
+
         # Get Logo - Bolder (35mm)
-        logo = get_logo_with_fallback(self.logo_path, width=35*mm, height=35*mm)
-        
-        # Style 1: Name & Tagline (Left Aligned, next to Logo)
+        logo = get_logo_with_fallback(self.logo_path, width=35 * mm, height=35 * mm)
+
+        # Style 1: Name & Tagline
         header_title_style = ParagraphStyle(
-            'HeaderTitle', parent=self.styles['Normal'], 
+            'HeaderTitle', parent=self.styles['Normal'],
             fontName=UNICODE_FONT_BOLD, fontSize=11, textColor=NAVY_BLUE, leading=13
         )
         header_sub_style = ParagraphStyle(
-            'HeaderSub', parent=self.styles['Normal'], 
+            'HeaderSub', parent=self.styles['Normal'],
             fontName=UNICODE_FONT, fontSize=8, textColor=GOLD, leading=10
         )
 
-        # Style 2: Address & Contact (Center Aligned, below Logo section)
+        # Style 2: Address & Contact
         header_center_style = ParagraphStyle(
-            'HeaderCenter', parent=self.styles['Normal'], 
+            'HeaderCenter', parent=self.styles['Normal'],
             fontName=UNICODE_FONT, fontSize=9, textColor=NAVY_BLUE, leading=12,
             alignment=TA_CENTER
         )
 
-        # Part A: Logo + Company Name/Tagline (Side by Side)
+        # Part A: Logo + Company Name/Tagline
         company_details_left = [
             Paragraph(COMPANY_NAME, header_title_style),
             Paragraph(COMPANY_TAGLINE, header_sub_style),
         ]
 
         header_data = [[logo, company_details_left]]
-        header_table = Table(header_data, colWidths=[40*mm, doc.width - 40*mm])
+        header_table = Table(header_data, colWidths=[40 * mm, doc.width - 40 * mm])
         header_table.setStyle(TableStyle([
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('LEFTPADDING', (0, 0), (0, 0), 0),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
         ]))
         elements.append(header_table)
-        
-        # Part B: Address & Contact (Centered below)
-        elements.append(Spacer(1, 2*mm))
+
+        # Part B: Address & Contact
+        elements.append(Spacer(1, 2 * mm))
         elements.append(Paragraph(COMPANY_ADDRESS, header_center_style))
         elements.append(Paragraph(f"Tel: {COMPANY_PHONE} | Email: {COMPANY_EMAIL}", header_center_style))
-        
+
         # Gold Line separator
-        elements.append(Spacer(1, 2*mm))
+        elements.append(Spacer(1, 2 * mm))
         elements.append(HRFlowable(width="100%", thickness=1.5, color=GOLD, spaceBefore=1, spaceAfter=1))
-        elements.append(Spacer(1, 3*mm))
+        elements.append(Spacer(1, 3 * mm))
 
         # =========================================================
-        # 2. DOCUMENT TITLE BAR
+        # 2. DOCUMENT TITLE BAR (DYNAMIC)
         # =========================================================
         title_table = Table(
-            [['PROFORMA INVOICE']],
+            [[doc_title]],
             colWidths=[doc.width]
         )
         title_table.setStyle(TableStyle([
@@ -1246,40 +1413,41 @@ class ProformaInvoiceGenerator(PDFGenerator):
             ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
         ]))
         elements.append(title_table)
-        elements.append(Spacer(1, 3*mm))
+        elements.append(Spacer(1, 3 * mm))
 
         # =========================================================
-        # 3. PROFORMA INFO BOX (The light blue box)
+        # 3. INFO BOX (DYNAMIC LABELS)
         # =========================================================
         proforma_data = [
             [
-                'Proforma No:', f'PF-{sales_order.pk:05d}',
+                id_label, f'{id_prefix}-{sales_order.pk:05d}',
                 'Date:', sales_order.date.strftime('%d/%m/%Y')
             ],
             [
-                'Valid Until:', sales_order.valid_until.strftime('%d/%m/%Y') if sales_order.valid_until else 'N/A',
+                date_label_2,
+                sales_order.valid_until.strftime('%d/%m/%Y') if sales_order.valid_until else 'Upon Receipt',
                 'Status:', sales_order.get_status_display()
             ],
         ]
-        # Adjusted widths to match A4 tight margins
-        proforma_table = Table(proforma_data, colWidths=[25*mm, 65*mm, 20*mm, 65*mm])
+        # Adjusted widths
+        proforma_table = Table(proforma_data, colWidths=[25 * mm, 65 * mm, 20 * mm, 65 * mm])
         proforma_table.setStyle(TableStyle([
             *self._get_base_table_style(),
-            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD), # Labels Bold
-            ('FONTNAME', (2, 0), (2, -1), UNICODE_FONT_BOLD), # Labels Bold
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),  # Labels Bold
+            ('FONTNAME', (2, 0), (2, -1), UNICODE_FONT_BOLD),  # Labels Bold
             ('TEXTCOLOR', (0, 0), (0, -1), NAVY_BLUE),
             ('TEXTCOLOR', (2, 0), (2, -1), NAVY_BLUE),
             ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('BACKGROUND', (0, 0), (-1, -1), LIGHT_NAVY), # Light Blue Background
-            ('BOX', (0, 0), (-1, -1), 1, NAVY_BLUE), # Border
+            ('BACKGROUND', (0, 0), (-1, -1), LIGHT_NAVY),
+            ('BOX', (0, 0), (-1, -1), 1, NAVY_BLUE),
             ('TOPPADDING', (0, 0), (-1, -1), 4),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ]))
         elements.append(proforma_table)
-        elements.append(Spacer(1, 4*mm))
+        elements.append(Spacer(1, 4 * mm))
 
         # =========================================================
-        # 4. BILL TO / DELIVER TO (Side by Side)
+        # 4. BILL TO / DELIVER TO (DYNAMIC HEADER)
         # =========================================================
         bill_to_data = [
             ['BILL TO:'],
@@ -1287,7 +1455,7 @@ class ProformaInvoiceGenerator(PDFGenerator):
             [sales_order.customer.phone],
             [sales_order.customer.email or ''],
         ]
-        bill_to_table = Table(bill_to_data, colWidths=[92*mm])
+        bill_to_table = Table(bill_to_data, colWidths=[92 * mm])
         bill_to_table.setStyle(TableStyle([
             *self._get_base_table_style(),
             ('FONTNAME', (0, 0), (0, 0), UNICODE_FONT_BOLD),
@@ -1299,14 +1467,14 @@ class ProformaInvoiceGenerator(PDFGenerator):
             ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
             ('LEFTPADDING', (0, 0), (-1, -1), 6),
         ]))
-        
+
         deliver_to_data = [
-            ['DELIVER TO:'],
+            [deliver_label],  # Dynamic Header
             [sales_order.site.name],
             [sales_order.site.address[:45] + '...' if len(sales_order.site.address) > 45 else sales_order.site.address],
             [f"Contact: {sales_order.site.contact_person or 'N/A'} ({sales_order.site.contact_phone or 'N/A'})"],
         ]
-        deliver_to_table = Table(deliver_to_data, colWidths=[92*mm])
+        deliver_to_table = Table(deliver_to_data, colWidths=[92 * mm])
         deliver_to_table.setStyle(TableStyle([
             *self._get_base_table_style(),
             ('FONTNAME', (0, 0), (0, 0), UNICODE_FONT_BOLD),
@@ -1319,45 +1487,45 @@ class ProformaInvoiceGenerator(PDFGenerator):
             ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
             ('LEFTPADDING', (0, 0), (-1, -1), 6),
         ]))
-        
+
         combined_data = [[bill_to_table, deliver_to_table]]
-        combined_table = Table(combined_data, colWidths=[95*mm, 95*mm])
+        combined_table = Table(combined_data, colWidths=[95 * mm, 95 * mm])
         combined_table.setStyle(TableStyle([
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ]))
         elements.append(combined_table)
-        elements.append(Spacer(1, 4*mm))
+        elements.append(Spacer(1, 4 * mm))
 
         # =========================================================
-        # 5. ORDER DETAILS (Items)
+        # 5. ORDER DETAILS (UPDATED FOR PER-ITEM DISCOUNT)
         # =========================================================
         elements.append(Paragraph("ORDER DETAILS:", self.styles['SectionHeader']))
-        
-        items_data = [['Item', 'Qty', 'Unit Price', 'Surcharge', 'Discount', 'Amount']]
-        
+
+        items_data = [['Item', 'Qty', 'Unit Price', 'Discount', 'Net Price', 'Amount']]
+
         subtotal = Decimal('0')
         total_qty = 0
-        
+
         for item in sales_order.items.all():
             base_price = item.block_type.selling_price
-            surcharge = sales_order.surcharge_per_block
-            discount = sales_order.discount_per_block
+            discount = item.discount_per_block
+            net_price = item.agreed_price
             line_total = item.line_total
-            
+
             items_data.append([
                 item.block_type.name[:20] + '..' if len(item.block_type.name) > 20 else item.block_type.name,
                 str(item.quantity_requested),
                 self._format_currency(base_price),
-                self._format_currency(surcharge) if surcharge > 0 else '-',
                 self._format_currency(discount) if discount > 0 else '-',
+                self._format_currency(net_price),
                 self._format_currency(line_total)
             ])
-            
+
             subtotal += line_total
             total_qty += item.quantity_requested
-        
-        items_table = Table(items_data, colWidths=[70*mm, 15*mm, 25*mm, 25*mm, 25*mm, 30*mm])
-        
+
+        items_table = Table(items_data, colWidths=[60 * mm, 15 * mm, 28 * mm, 25 * mm, 28 * mm, 34 * mm])
+
         style_commands = [
             ('FONTNAME', (0, 0), (-1, -1), self.font_name),
             ('FONTSIZE', (0, 0), (-1, -1), 9),
@@ -1374,30 +1542,28 @@ class ProformaInvoiceGenerator(PDFGenerator):
             ('GRID', (0, 0), (-1, 0), 1, NAVY_BLUE),
             ('LINEBELOW', (0, 1), (-1, -1), 0.5, colors.lightgrey),
         ]
-        
-        # Alternating row colors
+
         for i in range(1, len(items_data)):
             if i % 2 == 0:
                 style_commands.append(('BACKGROUND', (0, i), (-1, i), CREAM))
-        
+
         items_table.setStyle(TableStyle(style_commands))
         elements.append(items_table)
-        elements.append(Spacer(1, 2*mm))
+        elements.append(Spacer(1, 2 * mm))
 
         # =========================================================
-        # 6. TOTALS
+        # 6. TOTALS (UPDATED - REMOVED ORDER-LEVEL DISCOUNT)
         # =========================================================
         summary_data = [
             ['Subtotal:', self._format_currency(subtotal), 'Total Qty:', f'{total_qty} blocks'],
         ]
-        
-        surcharge_discount_text = ''
+
+        # Surcharge note (if applicable)
+        surcharge_text = ''
         if sales_order.surcharge_per_block > 0:
-            surcharge_discount_text += f"Surcharge: {self._format_currency(sales_order.surcharge_per_block)}/block (included)  "
-        if sales_order.discount_per_block > 0:
-            surcharge_discount_text += f"Discount: {self._format_currency(sales_order.discount_per_block)}/block (included)"
-        
-        summary_table = Table(summary_data, colWidths=[40*mm, 50*mm, 40*mm, 60*mm])
+            surcharge_text = f"Logistics Surcharge: {self._format_currency(sales_order.surcharge_per_block)}/block (separate)"
+
+        summary_table = Table(summary_data, colWidths=[40 * mm, 50 * mm, 40 * mm, 60 * mm])
         summary_table.setStyle(TableStyle([
             ('FONTNAME', (0, 0), (-1, -1), self.font_name),
             ('FONTSIZE', (0, 0), (-1, -1), 9),
@@ -1409,18 +1575,18 @@ class ProformaInvoiceGenerator(PDFGenerator):
             ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
         ]))
         elements.append(summary_table)
-        
-        if surcharge_discount_text:
-            elements.append(Paragraph(surcharge_discount_text, self.styles['SmallText']))
-        
-        elements.append(Spacer(1, 2*mm))
-        
-        # Total Amount Due - Highlighted
+
+        if surcharge_text:
+            elements.append(Paragraph(surcharge_text, self.styles['SmallText']))
+
+        elements.append(Spacer(1, 2 * mm))
+
+        # Total Amount Due
         total_data = [
             ['TOTAL AMOUNT DUE:', self._format_currency(subtotal)],
             ['', f'({self._amount_in_words(subtotal)})'],
         ]
-        total_table = Table(total_data, colWidths=[130*mm, 60*mm])
+        total_table = Table(total_data, colWidths=[130 * mm, 60 * mm])
         total_table.setStyle(TableStyle([
             ('FONTNAME', (0, 0), (-1, 0), UNICODE_FONT_BOLD),
             ('FONTSIZE', (0, 0), (-1, 0), 12),
@@ -1437,20 +1603,20 @@ class ProformaInvoiceGenerator(PDFGenerator):
             ('BOTTOMPADDING', (0, 1), (-1, 1), 2),
         ]))
         elements.append(total_table)
-        elements.append(Spacer(1, 4*mm))
+        elements.append(Spacer(1, 4 * mm))
 
         # =========================================================
-        # 7. PAYMENT & TERMS (Compact)
+        # 7. PAYMENT & TERMS (DYNAMIC)
         # =========================================================
         elements.append(Paragraph("PAYMENT INSTRUCTIONS:", self.styles['SectionHeader']))
-        
+
         accounts = PaymentAccount.objects.filter(is_active=True)
         payment_data = [['Bank', 'Account Name', 'Account Number']]
         for acc in accounts:
             payment_data.append([acc.bank_name, acc.account_name, acc.account_number])
-        
+
         if len(payment_data) > 1:
-            payment_table = Table(payment_data, colWidths=[60*mm, 70*mm, 60*mm])
+            payment_table = Table(payment_data, colWidths=[60 * mm, 70 * mm, 60 * mm])
             payment_table.setStyle(TableStyle([
                 *self._get_base_table_style(),
                 ('BACKGROUND', (0, 0), (-1, 0), GOLD),
@@ -1466,44 +1632,57 @@ class ProformaInvoiceGenerator(PDFGenerator):
             elements.append(payment_table)
         else:
             elements.append(Paragraph("Please contact us for payment details.", self.styles['NormalText']))
-        
-        elements.append(Spacer(1, 4*mm))
-        
-        # Terms and Conditions
+
+        elements.append(Spacer(1, 4 * mm))
+
+        # Terms and Conditions - DYNAMIC SWITCH
         elements.append(Paragraph("TERMS & CONDITIONS:", self.styles['SectionHeader']))
-        
-        validity_days = 14
-        if sales_order.valid_until and sales_order.date:
-            validity_days = (sales_order.valid_until - sales_order.date).days
-        
-        terms_data = [
-            ['1.', f'Valid for {validity_days} days. Prices subject to change after validity.'],
-            ['2.', 'Delivery begins 3-5 working days after payment confirmation.'],
-            ['3.', 'Payment confirms acceptance of terms.'],
-            ['4.', 'Goods remain property of Jafan Standard Block Industry until fully paid.'],
-        ]
-        
-        if sales_order.discount_reason:
-            terms_data.append(['5.', f'Discount Reason: {sales_order.discount_reason}'])
-        
-        terms_table = Table(terms_data, colWidths=[10*mm, 180*mm])
+
+        if is_final:
+            # FINAL INVOICE TERMS
+            terms_data = [
+                ['1.', 'Goods received in good condition are not returnable.'],
+                ['2.', 'Exchange allowed only within 48 hours for verified factory defects.'],
+                ['3.', 'Payment confirms acceptance of these terms.'],
+                ['4.', 'Title of goods passes to buyer upon full payment.'],
+            ]
+        else:
+            # PROFORMA TERMS (Original)
+            validity_days = 14
+            if sales_order.valid_until and sales_order.date:
+                validity_days = (sales_order.valid_until - sales_order.date).days
+
+            terms_data = [
+                ['1.', f'Valid for {validity_days} days. Prices subject to change after validity.'],
+                ['2.', 'Delivery begins 3-5 working days after payment confirmation.'],
+                ['3.', 'Payment confirms acceptance of terms.'],
+                ['4.', 'Goods remain property of Jafan Standard Block Industry until fully paid.'],
+            ]
+
+        # Collect discount reasons from items
+        discount_reasons = [item.discount_reason for item in sales_order.items.all() if item.discount_reason]
+        if discount_reasons:
+            reasons_text = "; ".join(discount_reasons)
+            terms_data.append(['5.', f'Discount Reason(s): {reasons_text}'])
+
+        terms_table = Table(terms_data, colWidths=[10 * mm, 180 * mm])
         terms_table.setStyle(TableStyle([
             *self._get_base_table_style(),
             ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
             ('TEXTCOLOR', (0, 0), (0, -1), NAVY_BLUE),
             ('FONTSIZE', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 0), (-1, -1), 1), 
+            ('TOPPADDING', (0, 0), (-1, -1), 1),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
         ]))
         elements.append(terms_table)
-        
-        # Notes (Compact)
+
+        # Notes
         if sales_order.notes:
-            elements.append(Spacer(1, 2*mm))
+            elements.append(Spacer(1, 2 * mm))
             elements.append(Paragraph(f"<b>NOTES:</b> {sales_order.notes}", self.styles['NormalText']))
-        
+
         # Signatures
-        elements.append(Spacer(1, 3*mm))
+        elements.append(Spacer(1, 3 * mm))
         sig_data = [['Signed Management']]
         sig_table = Table(sig_data, colWidths=[170])
         sig_table.setStyle(TableStyle([
@@ -1514,9 +1693,1485 @@ class ProformaInvoiceGenerator(PDFGenerator):
             ('TOPPADDING', (0, 0), (-1, -1), 2),
         ]))
         elements.append(sig_table)
+
+        # Footer
+        elements.extend(self._get_footer())
+
+        doc.build(elements)
+        return self._create_response(buffer, f'{id_prefix}-{sales_order.pk:05d}.pdf')
+    
+
+# ==============================================================================
+# VENDOR STATEMENT GENERATOR
+# ==============================================================================
+
+class VendorStatementGenerator(PDFGenerator):
+    """Generate professional branded Vendor Statement on A4."""
+
+    def generate(self, vendor, start_date=None, end_date=None):
+        from .models import Expense, ProcurementLog, VendorPayment, SupplyLog, AccountTransfer
+        
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A4,
+            topMargin=12*mm, bottomMargin=12*mm,
+            leftMargin=15*mm, rightMargin=15*mm
+        )
+        elements = []
+        
+        # Date range defaults
+        end_date = end_date or timezone.now().date()
+        start_date = start_date or end_date.replace(day=1)
+        
+        # Header
+        elements.extend(self._get_branded_header())
+        
+        # Document Title
+        title_table = Table(
+            [['VENDOR ACCOUNT STATEMENT']],
+            colWidths=[doc.width]
+        )
+        title_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), NAVY_BLUE),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 14),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        elements.append(title_table)
+        
+        # Period
+        elements.append(Spacer(1, 3*mm))
+        elements.append(Paragraph(
+            f"Period: {start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')}",
+            self.styles['CenterAlign']
+        ))
+        elements.append(Spacer(1, 5*mm))
+        
+        # Vendor Info Box
+        vendor_type = "INTERNAL" if vendor.is_internal else "EXTERNAL"
+        vendor_data = [
+            ['Vendor:', vendor.name, 'Type:', vendor_type],
+            ['Phone:', vendor.phone or 'N/A', 'Supply Type:', getattr(vendor, 'supply_type', 'N/A') or 'N/A'],
+        ]
+        vendor_table = Table(vendor_data, colWidths=[50, 160, 70, 110])
+        vendor_table.setStyle(TableStyle([
+            *self._get_base_table_style(),
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+            ('FONTNAME', (2, 0), (2, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('BACKGROUND', (0, 0), (-1, -1), LIGHT_NAVY),
+            ('BOX', (0, 0), (-1, -1), 1, NAVY_BLUE),
+        ]))
+        elements.append(vendor_table)
+        elements.append(Spacer(1, 5*mm))
+        
+        # ======================================================================
+        # GATHER TRANSACTIONS
+        # ======================================================================
+        transactions = []
+        period_debit = Decimal('0')   # What we owe vendor (increases balance)
+        period_credit = Decimal('0')  # What we paid vendor (decreases balance)
+        
+        # ======================================================================
+        # CHECK IF INTERNAL TRANSPORT VENDOR
+        # ======================================================================
+        is_internal_transport = (
+            vendor.is_internal and 
+            getattr(vendor, 'supply_type', None) == 'TRANSPORT'
+        )
+        
+        if is_internal_transport:
+            # ==================================================================
+            # INTERNAL TRANSPORT: Special Logic
+            # ==================================================================
+            
+            # ------------------------------------------------------------------
+            # DEBITS: Logistics Income from Block Deliveries
+            # ------------------------------------------------------------------
+            for s in SupplyLog.objects.filter(
+                date__gte=start_date,
+                date__lte=end_date,
+                delivery_type='DELIVERED',
+                logistics_income__gt=0
+            ).select_related('customer', 'block_type', 'site'):
+                transactions.append({
+                    'date': s.date,
+                    'type': 'Delivery',
+                    'description': f'{s.quantity_delivered} {s.block_type.name} to {s.customer.name}',
+                    'debit': s.logistics_income,
+                    'credit': None,
+                })
+                period_debit += s.logistics_income
+            
+            # ------------------------------------------------------------------
+            # DEBITS: Internal Haulage from Procurements
+            # ------------------------------------------------------------------
+            for p in ProcurementLog.objects.filter(
+                date__gte=start_date,
+                date__lte=end_date,
+                is_internal_haulage=True,
+                haulage_fee__gt=0
+            ).select_related('material', 'vendor'):
+                supplier_name = p.vendor.name if p.vendor else 'Unknown'
+                transactions.append({
+                    'date': p.date,
+                    'type': 'Haulage',
+                    'description': f'{p.quantity} {p.material.get_name_display()} from {supplier_name}',
+                    'debit': p.haulage_fee,
+                    'credit': None,
+                })
+                period_debit += p.haulage_fee
+            
+            # ------------------------------------------------------------------
+            # CREDITS: Transport Settlements (AccountTransfer)
+            # ------------------------------------------------------------------
+            for t in AccountTransfer.objects.filter(
+                date__gte=start_date,
+                date__lte=end_date,
+                is_transport_settlement=True
+            ).select_related('from_account', 'to_account'):
+                ref_text = f" (Ref: {t.reference})" if t.reference else ""
+                transactions.append({
+                    'date': t.date,
+                    'type': 'Settlement',
+                    'description': f'Settlement to {t.to_account.bank_name}{ref_text}',
+                    'debit': None,
+                    'credit': t.amount,
+                })
+                period_credit += t.amount
+            
+            # ------------------------------------------------------------------
+            # CREDITS: VendorPayment (if any direct payments to Transport)
+            # ------------------------------------------------------------------
+            for vp in VendorPayment.objects.filter(
+                vendor=vendor,
+                date__gte=start_date,
+                date__lte=end_date
+            ):
+                ref_text = f" (Ref: {vp.reference})" if vp.reference else ""
+                transactions.append({
+                    'date': vp.date,
+                    'type': 'Payment',
+                    'description': f'Payment to Vendor{ref_text}',
+                    'debit': None,
+                    'credit': vp.amount,
+                })
+                period_credit += vp.amount
+        
+        else:
+            # ==================================================================
+            # REGULAR VENDOR: Standard Logic
+            # ==================================================================
+            
+            # ------------------------------------------------------------------
+            # DEBITS: Procurement (Credit purchases only - unpaid)
+            # ------------------------------------------------------------------
+            for p in ProcurementLog.objects.filter(
+                vendor=vendor, 
+                date__gte=start_date, 
+                date__lte=end_date,
+                is_paid=False  # Only CREDIT purchases increase vendor balance
+            ).select_related('material'):
+                transactions.append({
+                    'date': p.date,
+                    'type': 'Purchase',
+                    'description': f'{p.quantity} {p.material.get_name_display()}',
+                    'debit': p.total_cost,
+                    'credit': None,
+                })
+                period_debit += p.total_cost
+            
+            # ------------------------------------------------------------------
+            # DEBITS: Manual Expenses (Credit only - unpaid, not auto-synced)
+            # ------------------------------------------------------------------
+            for e in Expense.objects.filter(
+                vendor=vendor, 
+                date__gte=start_date, 
+                date__lte=end_date,
+                is_auto_synced=False,
+                is_paid=False  # Only CREDIT expenses increase vendor balance
+            ).select_related('category'):
+                desc = e.description[:20] if e.description else ''
+                transactions.append({
+                    'date': e.date,
+                    'type': 'Expense',
+                    'description': f'{e.category.name}: {desc}',
+                    'debit': e.amount,
+                    'credit': None,
+                })
+                period_debit += e.amount
+            
+            # ------------------------------------------------------------------
+            # CREDITS: VendorPayment (Payments TO vendor)
+            # ------------------------------------------------------------------
+            for vp in VendorPayment.objects.filter(
+                vendor=vendor,
+                date__gte=start_date,
+                date__lte=end_date
+            ):
+                ref_text = f" (Ref: {vp.reference})" if vp.reference else ""
+                transactions.append({
+                    'date': vp.date,
+                    'type': 'Payment',
+                    'description': f'Payment to Vendor{ref_text}',
+                    'debit': None,
+                    'credit': vp.amount,
+                })
+                period_credit += vp.amount
+        
+        # Sort by date
+        transactions.sort(key=lambda x: x['date'])
+        
+        # ======================================================================
+        # CALCULATE OPENING BALANCE
+        # Opening = Closing - Period Debits + Period Credits
+        # ======================================================================
+        final_balance = vendor.account_balance
+        opening_balance = final_balance - period_debit + period_credit
+        
+        # ======================================================================
+        # BUILD TABLE
+        # ======================================================================
+        elements.append(Paragraph("TRANSACTION HISTORY", self.styles['SectionHeader']))
+        
+        trans_data = [['Date', 'Type', 'Description', 'Debit (₦)', 'Credit (₦)', 'Balance']]
+        
+        # Opening Balance Row
+        running_balance = opening_balance
+        trans_data.append([
+            start_date.strftime('%d/%m/%Y'),
+            'B/F',
+            'Opening Balance',
+            '',
+            '',
+            self._format_currency(running_balance)
+        ])
+        
+        for t in transactions:
+            # Update running balance
+            if t['debit']:
+                running_balance += t['debit']
+            if t['credit']:
+                running_balance -= t['credit']
+            
+            debit_str = self._format_currency(t['debit']) if t['debit'] else ''
+            credit_str = self._format_currency(t['credit']) if t['credit'] else ''
+            
+            desc = t['description']
+            if len(desc) > 30:
+                desc = desc[:27] + '...'
+            
+            trans_data.append([
+                t['date'].strftime('%d/%m/%Y'),
+                t['type'],
+                desc,
+                debit_str,
+                credit_str,
+                self._format_currency(running_balance)
+            ])
+        
+        # Totals row
+        trans_data.append([
+            '', '', 'PERIOD TOTALS:', 
+            self._format_currency(period_debit), 
+            self._format_currency(period_credit), 
+            ''
+        ])
+        
+        trans_table = Table(trans_data, colWidths=[50, 50, 140, 65, 65, 65])
+        
+        style_commands = [
+            *self._get_base_table_style(),
+            ('BACKGROUND', (0, 0), (-1, 0), NAVY_BLUE),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (3, 0), (-1, -1), 'RIGHT'),
+            ('GRID', (0, 0), (-1, -2), 0.5, colors.lightgrey),
+            ('LINEABOVE', (0, -1), (-1, -1), 1.5, NAVY_BLUE),
+            ('FONTNAME', (2, -1), (-1, -1), UNICODE_FONT_BOLD),
+        ]
+        
+        # Alternating row colors
+        for i in range(1, len(trans_data) - 1):
+            if i % 2 == 0:
+                style_commands.append(('BACKGROUND', (0, i), (-1, i), CREAM))
+        
+        trans_table.setStyle(TableStyle(style_commands))
+        elements.append(trans_table)
+        elements.append(Spacer(1, 6*mm))
+        
+        # Account Summary Box
+        elements.append(Paragraph("ACCOUNT SUMMARY", self.styles['SectionHeader']))
+        
+        if final_balance > 0:
+            balance_status = "We Owe Vendor"
+            balance_color = "#dc3545"  # Red
+        elif final_balance < 0:
+            balance_status = "Vendor Owes Us"
+            balance_color = "#007bff"  # Blue
+        else:
+            balance_status = "Settled"
+            balance_color = "#28a745"  # Green
+        
+        # Customize labels for internal transport
+        if is_internal_transport:
+            debit_label = "Period Services (Block Owes Transport):"
+            credit_label = "Period Settlements (Paid to Transport):"
+        else:
+            debit_label = "Period Purchases (Debit):"
+            credit_label = "Period Payments (Credit):"
+        
+        summary_data = [
+            ['Opening Balance:', self._format_currency(opening_balance)],
+            [debit_label, self._format_currency(period_debit)],
+            [credit_label, self._format_currency(period_credit)],
+            ['', ''],
+            ['CLOSING BALANCE:', self._format_currency(final_balance)],
+            ['STATUS:', balance_status],
+        ]
+        summary_table = Table(summary_data, colWidths=[200, 180])
+        summary_table.setStyle(TableStyle([
+            *self._get_base_table_style(),
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('LINEABOVE', (0, 4), (-1, 4), 1.5, GOLD),
+            ('FONTSIZE', (0, 4), (-1, 5), 12),
+            ('TEXTCOLOR', (0, 4), (-1, 5), NAVY_BLUE),
+            ('BACKGROUND', (0, 4), (-1, 5), LIGHT_GOLD),
+        ]))
+        elements.append(summary_table)
+        
+        # Generation timestamp
+        elements.append(Spacer(1, 5*mm))
+        elements.append(Paragraph(
+            f"Statement generated on {timezone.now().strftime('%d/%m/%Y at %H:%M')}",
+            self.styles['SmallText']
+        ))
         
         # Footer
         elements.extend(self._get_footer())
         
         doc.build(elements)
-        return self._create_response(buffer, f'Proforma_PF-{sales_order.pk:05d}.pdf')
+        
+        filename = f'VendorStatement_{vendor.name.replace(" ", "_")}_{end_date}.pdf'
+        return self._create_response(buffer, filename)
+    
+
+# ==============================================================================
+# ACCOUNT STATEMENT GENERATOR
+# ==============================================================================
+
+class AccountStatementGenerator(PDFGenerator):
+    """Generate professional branded Account Statement on A4 (like a bank statement)."""
+
+    def generate(self, account, start_date=None, end_date=None):
+        from .models import Payment, Expense, ProcurementLog, CashRefund, BankCharge, AccountTransfer, VendorPayment, SandSale, Loan, LoanRepayment
+        
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A4,
+            topMargin=12*mm, bottomMargin=12*mm,
+            leftMargin=15*mm, rightMargin=15*mm
+        )
+        elements = []
+        
+        # Date range defaults
+        end_date = end_date or timezone.now().date()
+        start_date = start_date or end_date.replace(day=1)
+        
+        # Header
+        elements.extend(self._get_branded_header())
+        
+        # Document Title
+        title_table = Table(
+            [['ACCOUNT STATEMENT']],
+            colWidths=[doc.width]
+        )
+        title_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), NAVY_BLUE),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 14),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        elements.append(title_table)
+        
+        # Period
+        elements.append(Spacer(1, 3*mm))
+        elements.append(Paragraph(
+            f"Period: {start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')}",
+            self.styles['CenterAlign']
+        ))
+        elements.append(Spacer(1, 5*mm))
+        
+        # Account Info Box
+        account_data = [
+            ['Account:', account.bank_name, 'Type:', account.get_account_type_display()],
+            ['Account No:', account.account_number or 'N/A', 'Business Unit:', account.get_business_unit_display()],
+            ['Account Name:', account.account_name, '', ''],
+        ]
+        account_table = Table(account_data, colWidths=[80, 150, 75, 110])
+        account_table.setStyle(TableStyle([
+            *self._get_base_table_style(),
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+            ('FONTNAME', (2, 0), (2, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('BACKGROUND', (0, 0), (-1, -1), LIGHT_NAVY),
+            ('BOX', (0, 0), (-1, -1), 1, NAVY_BLUE),
+        ]))
+        elements.append(account_table)
+        elements.append(Spacer(1, 5*mm))
+        
+        # ======================================================================
+        # GATHER TRANSACTIONS
+        # ======================================================================
+        transactions = []
+        period_debit = Decimal('0')   # Money going OUT
+        period_credit = Decimal('0')  # Money coming IN
+        
+        # ----------------------------------------------------------------------
+        # CREDITS: Payments received from customers (money IN)
+        # ----------------------------------------------------------------------
+        for p in Payment.objects.filter(
+            payment_account=account, 
+            date__gte=start_date, 
+            date__lte=end_date
+        ):
+            transactions.append({
+                'date': p.date,
+                'description': f'Payment: {p.customer.name}',
+                'reference': p.reference or '',
+                'debit': None,
+                'credit': p.amount
+            })
+            period_credit += p.amount
+        
+
+        # ----------------------------------------------------------------------
+        # CREDITS: Sand Sales (money IN)
+        # ----------------------------------------------------------------------
+        for ss in SandSale.objects.filter(
+            payment_account=account,
+            date__gte=start_date,
+            date__lte=end_date
+        ):
+            desc = f'Sand Sale: {ss.quantity}x {ss.vehicle_type.name}'
+            if ss.customer_name:
+                desc += f' ({ss.customer_name})'
+            transactions.append({
+                'date': ss.date,
+                'description': desc,
+                'reference': f'SND-{ss.pk:05d}',
+                'debit': None,
+                'credit': ss.total_amount
+            })
+            period_credit += ss.total_amount
+        # ----------------------------------------------------------------------
+        # DEBITS: Expenses paid (money OUT)
+        # ----------------------------------------------------------------------
+        for e in Expense.objects.filter(
+            payment_account=account, 
+            date__gte=start_date, 
+            date__lte=end_date, 
+            is_paid=True
+        ):
+            transactions.append({
+                'date': e.payment_date or e.date,
+                'description': f'Expense: {e.category.name}',
+                'reference': e.receipt_number or '',
+                'debit': e.amount,
+                'credit': None
+            })
+            period_debit += e.amount
+        
+        # ----------------------------------------------------------------------
+        # DEBITS: Vendor Payments (money OUT) - NEW!
+        # ----------------------------------------------------------------------
+        for vp in VendorPayment.objects.filter(
+            payment_account=account,
+            date__gte=start_date,
+            date__lte=end_date
+        ):
+            transactions.append({
+                'date': vp.date,
+                'description': f'Vendor Payment: {vp.vendor.name}',
+                'reference': vp.reference or '',
+                'debit': vp.amount,
+                'credit': None
+            })
+            period_debit += vp.amount
+        
+        # ----------------------------------------------------------------------
+        # DEBITS: Cash Refunds to customers (money OUT)
+        # ----------------------------------------------------------------------
+        for r in CashRefund.objects.filter(
+            payment_account=account, 
+            date__gte=start_date, 
+            date__lte=end_date
+        ):
+            transactions.append({
+                'date': r.date,
+                'description': f'Refund: {r.customer.name}',
+                'reference': '',
+                'debit': r.amount,
+                'credit': None
+            })
+            period_debit += r.amount
+        
+        # ----------------------------------------------------------------------
+        # DEBITS: Bank Charges (money OUT)
+        # ----------------------------------------------------------------------
+        for b in BankCharge.objects.filter(
+            account=account, 
+            date__gte=start_date, 
+            date__lte=end_date
+        ):
+            transactions.append({
+                'date': b.date,
+                'description': f'Bank Charge: {b.charge_type}',
+                'reference': b.reference or '',
+                'debit': b.amount,
+                'credit': None
+            })
+            period_debit += b.amount
+        
+        # ----------------------------------------------------------------------
+        # DEBITS: Transfers OUT (money OUT)
+        # ----------------------------------------------------------------------
+        for t in AccountTransfer.objects.filter(
+            from_account=account, 
+            date__gte=start_date, 
+            date__lte=end_date
+        ):
+            desc = f'Transfer to: {t.to_account.bank_name}'
+            if t.is_transport_settlement:
+                desc = f'Settlement to: {t.to_account.bank_name}'
+            transactions.append({
+                'date': t.date,
+                'description': desc,
+                'reference': t.reference or '',
+                'debit': t.amount,
+                'credit': None
+            })
+            period_debit += t.amount
+
+
+        # ----------------------------------------------------------------------
+        # DEBITS: Loans Given (money OUT)
+        # ----------------------------------------------------------------------
+        for loan in Loan.objects.filter(
+            payment_account=account,
+            date__gte=start_date,
+            date__lte=end_date
+        ):
+            transactions.append({
+                'date': loan.date,
+                'description': f'Loan: {loan.debtor.name}',
+                'reference': f'LOAN-{loan.pk:05d}',
+                'debit': loan.amount,
+                'credit': None
+            })
+            period_debit += loan.amount
+
+        # ----------------------------------------------------------------------
+        # CREDITS: Loan Repayments (money IN)
+        # ----------------------------------------------------------------------
+        for repayment in LoanRepayment.objects.filter(
+            payment_account=account,
+            date__gte=start_date,
+            date__lte=end_date
+        ):
+            transactions.append({
+                'date': repayment.date,
+                'description': f'Loan Repayment: {repayment.loan.debtor.name}',
+                'reference': repayment.reference or f'LOAN-{repayment.loan.pk:05d}',
+                'debit': None,
+                'credit': repayment.amount
+            })
+            period_credit += repayment.amount
+        
+        # ----------------------------------------------------------------------
+        # CREDITS: Transfers IN (money IN)
+        # ----------------------------------------------------------------------
+        for t in AccountTransfer.objects.filter(
+            to_account=account, 
+            date__gte=start_date, 
+            date__lte=end_date
+        ):
+            desc = f'Transfer from: {t.from_account.bank_name}'
+            if t.is_transport_settlement:
+                desc = f'Settlement from: {t.from_account.bank_name}'
+            transactions.append({
+                'date': t.date,
+                'description': desc,
+                'reference': t.reference or '',
+                'debit': None,
+                'credit': t.amount
+            })
+            period_credit += t.amount
+        
+        # Sort by date
+        transactions.sort(key=lambda x: x['date'])
+        
+        # ======================================================================
+        # CALCULATE OPENING BALANCE
+        # Opening = Closing - Credits + Debits
+        # ======================================================================
+        final_balance = account.current_balance
+        opening_balance = final_balance - period_credit + period_debit
+        
+        # ======================================================================
+        # BUILD TABLE
+        # ======================================================================
+        elements.append(Paragraph("TRANSACTION HISTORY", self.styles['SectionHeader']))
+        
+        trans_data = [['Date', 'Description', 'Reference', 'Debit (₦)', 'Credit (₦)', 'Balance']]
+        
+        # Opening Balance Row
+        running_balance = opening_balance
+        trans_data.append([
+            start_date.strftime('%d/%m/%Y'),
+            'Opening Balance',
+            '',
+            '',
+            '',
+            self._format_currency(running_balance)
+        ])
+        
+        for t in transactions:
+            # Calculate running balance
+            if t['credit']:
+                running_balance += t['credit']
+            if t['debit']:
+                running_balance -= t['debit']
+            
+            debit_str = self._format_currency(t['debit']) if t['debit'] else ''
+            credit_str = self._format_currency(t['credit']) if t['credit'] else ''
+            
+            desc = t['description']
+            if len(desc) > 35:
+                desc = desc[:32] + '...'
+            
+            ref = t['reference']
+            if len(ref) > 15:
+                ref = ref[:12] + '...'
+            
+            trans_data.append([
+                t['date'].strftime('%d/%m/%Y'),
+                desc,
+                ref,
+                debit_str,
+                credit_str,
+                self._format_currency(running_balance)
+            ])
+        
+        # Totals row
+        trans_data.append([
+            '', 'PERIOD TOTALS:', '', 
+            self._format_currency(period_debit), 
+            self._format_currency(period_credit), 
+            ''
+        ])
+        
+        trans_table = Table(trans_data, colWidths=[50, 150, 55, 65, 65, 65])
+        
+        style_commands = [
+            *self._get_base_table_style(),
+            ('BACKGROUND', (0, 0), (-1, 0), NAVY_BLUE),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (3, 0), (-1, -1), 'RIGHT'),
+            ('GRID', (0, 0), (-1, -2), 0.5, colors.lightgrey),
+            ('LINEABOVE', (0, -1), (-1, -1), 1.5, NAVY_BLUE),
+            ('FONTNAME', (1, -1), (-1, -1), UNICODE_FONT_BOLD),
+        ]
+        
+        # Alternating row colors
+        for i in range(1, len(trans_data) - 1):
+            if i % 2 == 0:
+                style_commands.append(('BACKGROUND', (0, i), (-1, i), CREAM))
+        
+        trans_table.setStyle(TableStyle(style_commands))
+        elements.append(trans_table)
+        elements.append(Spacer(1, 6*mm))
+        
+        # Account Summary Box
+        elements.append(Paragraph("ACCOUNT SUMMARY", self.styles['SectionHeader']))
+        
+        summary_data = [
+            ['Opening Balance:', self._format_currency(opening_balance)],
+            ['Total Credits (Money In):', self._format_currency(period_credit)],
+            ['Total Debits (Money Out):', self._format_currency(period_debit)],
+            ['', ''],
+            ['CLOSING BALANCE:', self._format_currency(final_balance)],
+        ]
+        summary_table = Table(summary_data, colWidths=[200, 180])
+        summary_table.setStyle(TableStyle([
+            *self._get_base_table_style(),
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('LINEABOVE', (0, 4), (-1, 4), 1.5, GOLD),
+            ('FONTSIZE', (0, 4), (-1, 4), 12),
+            ('TEXTCOLOR', (0, 4), (-1, 4), NAVY_BLUE),
+            ('BACKGROUND', (0, 4), (-1, 4), LIGHT_GOLD),
+        ]))
+        elements.append(summary_table)
+        
+        # Last Audit Info (if available)
+        if account.last_audit_date:
+            elements.append(Spacer(1, 4*mm))
+            audit_data = [
+                ['Last Audit Date:', account.last_audit_date.strftime('%d/%m/%Y')],
+                ['Last Audit Balance:', self._format_currency(account.last_audit_balance or 0)],
+            ]
+            if account.last_audit_notes:
+                audit_data.append(['Audit Notes:', account.last_audit_notes[:50]])
+            
+            audit_table = Table(audit_data, colWidths=[120, 260])
+            audit_table.setStyle(TableStyle([
+                *self._get_base_table_style(),
+                ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BACKGROUND', (0, 0), (-1, -1), CREAM),
+                ('BOX', (0, 0), (-1, -1), 1, GOLD),
+            ]))
+            elements.append(audit_table)
+        
+        # Generation timestamp
+        elements.append(Spacer(1, 5*mm))
+        elements.append(Paragraph(
+            f"Statement generated on {timezone.now().strftime('%d/%m/%Y at %H:%M')}",
+            self.styles['SmallText']
+        ))
+        
+        # Footer
+        elements.extend(self._get_footer())
+        
+        doc.build(elements)
+        
+        filename = f'AccountStatement_{account.bank_name.replace(" ", "_")}_{end_date}.pdf'
+        return self._create_response(buffer, filename)
+    
+
+# ==============================================================================
+# PROFIT & LOSS PDF GENERATOR
+# ==============================================================================
+
+class ProfitLossGenerator(PDFGenerator):
+    """Generate professional Profit & Loss Statement PDF."""
+
+    def generate(self, start_date, end_date):
+        from .services import BlockIndustryPLService
+        
+        # Get P&L data
+        pl_service = BlockIndustryPLService(start_date, end_date, business_unit='BLOCK')
+        pl_data = pl_service.get_full_pl()
+        
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A4,
+            topMargin=15*mm, bottomMargin=15*mm,
+            leftMargin=20*mm, rightMargin=20*mm
+        )
+        elements = []
+        
+        # Header
+        elements.extend(self._get_branded_header())
+        
+        # Document Title
+        title_table = Table(
+            [['PROFIT & LOSS STATEMENT']],
+            colWidths=[doc.width]
+        )
+        title_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), NAVY_BLUE),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 16),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+        ]))
+        elements.append(title_table)
+        
+        # Period
+        elements.append(Spacer(1, 5*mm))
+        elements.append(Paragraph(
+            f"Period: {start_date.strftime('%d %B %Y')} to {end_date.strftime('%d %B %Y')}",
+            self.styles['CenterAlign']
+        ))
+        elements.append(Spacer(1, 8*mm))
+        
+        # ======================================================================
+        # P&L TABLE
+        # ======================================================================
+        pl_table_data = []
+        col_widths = [380, 100]
+        
+        # REVENUE SECTION
+        pl_table_data.append(['REVENUE', ''])
+        
+        for item in pl_data['revenue']['by_block_type']:
+            qty = item['quantity'] or 0
+            rev = item['revenue'] or Decimal('0')
+            pl_table_data.append([
+                f"    {item['block_type__name']} ({qty:,} blocks)",
+                self._format_currency(rev)
+            ])
+        
+        pl_table_data.append(['Total Block Sales', self._format_currency(pl_data['revenue']['block_sales'])])
+        pl_table_data.append([
+            f"    Logistics Income (to Transport)",
+            f"({self._format_currency(pl_data['revenue']['logistics_income'])})"
+        ])
+        pl_table_data.append(['TOTAL REVENUE', self._format_currency(pl_data['revenue']['total'])])
+        pl_table_data.append(['', ''])  # Spacer row
+        
+        # COGS SECTION
+        pl_table_data.append(['COST OF GOODS SOLD', ''])
+        
+        for item in pl_data['cogs']['by_block_type']:
+            qty = item['quantity'] or 0
+            cogs = item['cogs'] or Decimal('0')
+            pl_table_data.append([
+                f"    {item['block_type__name']} ({qty:,} blocks)",
+                self._format_currency(cogs)
+            ])
+        
+        pl_table_data.append(['TOTAL COGS', self._format_currency(pl_data['cogs']['total'])])
+        pl_table_data.append(['', ''])  # Spacer row
+        
+        # GROSS PROFIT
+        pl_table_data.append([
+            f"GROSS PROFIT ({pl_data['gross_margin_percent']}% margin)",
+            self._format_currency(pl_data['gross_profit'])
+        ])
+        pl_table_data.append(['', ''])  # Spacer row
+        
+        # OPERATING EXPENSES
+        pl_table_data.append(['OPERATING EXPENSES', ''])
+        
+        for cat, amount in pl_data['operating_expenses']['breakdown'].items():
+            pl_table_data.append([f"    {cat}", self._format_currency(amount)])
+        
+        if not pl_data['operating_expenses']['breakdown']:
+            pl_table_data.append(['    (No operating expenses)', ''])
+        
+        pl_table_data.append(['TOTAL OPERATING EXPENSES', self._format_currency(pl_data['operating_expenses']['total'])])
+        pl_table_data.append(['', ''])  # Spacer row
+        
+        # NET PROFIT
+        pl_table_data.append([
+            f"NET PROFIT BEFORE TAX ({pl_data['net_margin_percent']}% margin)",
+            self._format_currency(pl_data['net_profit'])
+        ])
+        
+        # Build table
+        pl_table = Table(pl_table_data, colWidths=col_widths)
+        
+        # Style the table
+        style_commands = [
+            ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]
+        
+        # Find and style section headers and totals
+        for i, row in enumerate(pl_table_data):
+            if row[0] in ['REVENUE', 'COST OF GOODS SOLD', 'OPERATING EXPENSES']:
+                style_commands.extend([
+                    ('BACKGROUND', (0, i), (-1, i), LIGHT_NAVY),
+                    ('FONTNAME', (0, i), (-1, i), UNICODE_FONT_BOLD),
+                    ('TEXTCOLOR', (0, i), (-1, i), NAVY_BLUE),
+                ])
+            elif row[0].startswith('TOTAL') or row[0].startswith('NET PROFIT'):
+                style_commands.extend([
+                    ('FONTNAME', (0, i), (-1, i), UNICODE_FONT_BOLD),
+                    ('LINEABOVE', (0, i), (-1, i), 1, NAVY_BLUE),
+                ])
+            elif row[0].startswith('GROSS PROFIT'):
+                style_commands.extend([
+                    ('BACKGROUND', (0, i), (-1, i), LIGHT_GOLD),
+                    ('FONTNAME', (0, i), (-1, i), UNICODE_FONT_BOLD),
+                    ('TEXTCOLOR', (0, i), (-1, i), NAVY_BLUE),
+                ])
+        
+        # Style NET PROFIT row specially
+        last_row = len(pl_table_data) - 1
+        style_commands.extend([
+            ('BACKGROUND', (0, last_row), (-1, last_row), NAVY_BLUE),
+            ('TEXTCOLOR', (0, last_row), (-1, last_row), colors.white),
+            ('FONTNAME', (0, last_row), (-1, last_row), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, last_row), (-1, last_row), 12),
+        ])
+        
+        pl_table.setStyle(TableStyle(style_commands))
+        elements.append(pl_table)
+        
+        # ======================================================================
+        # SUMMARY BOX
+        # ======================================================================
+        elements.append(Spacer(1, 10*mm))
+        elements.append(Paragraph("FINANCIAL SUMMARY", self.styles['SectionHeader']))
+        
+        summary_data = [
+            ['Total Revenue:', self._format_currency(pl_data['revenue']['total'])],
+            ['Cost of Goods Sold:', self._format_currency(pl_data['cogs']['total'])],
+            ['Gross Profit:', self._format_currency(pl_data['gross_profit'])],
+            ['Gross Margin:', f"{pl_data['gross_margin_percent']}%"],
+            ['Operating Expenses:', self._format_currency(pl_data['operating_expenses']['total'])],
+            ['', ''],
+            ['NET PROFIT:', self._format_currency(pl_data['net_profit'])],
+            ['Net Margin:', f"{pl_data['net_margin_percent']}%"],
+        ]
+        
+        summary_table = Table(summary_data, colWidths=[250, 150])
+        summary_table.setStyle(TableStyle([
+            *self._get_base_table_style(),
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('LINEABOVE', (0, 6), (-1, 6), 1.5, GOLD),
+            ('FONTSIZE', (0, 6), (-1, 6), 12),
+            ('BACKGROUND', (0, 6), (-1, 7), LIGHT_GOLD),
+            ('TEXTCOLOR', (0, 6), (-1, 7), NAVY_BLUE),
+        ]))
+        elements.append(summary_table)
+        
+        # Generation timestamp
+        elements.append(Spacer(1, 8*mm))
+        elements.append(Paragraph(
+            f"Report generated on {timezone.now().strftime('%d/%m/%Y at %H:%M')}",
+            self.styles['SmallText']
+        ))
+        
+        # Footer
+        elements.extend(self._get_footer())
+        
+        doc.build(elements)
+        
+        filename = f'ProfitLoss_{start_date}_{end_date}.pdf'
+        return self._create_response(buffer, filename)
+
+
+# ==============================================================================
+# CASH FLOW PDF GENERATOR
+# ==============================================================================
+
+class CashFlowPDFGenerator(PDFGenerator):
+    """Generate professional Cash Flow Statement PDF."""
+
+    def generate(self, start_date, end_date, account=None, business_unit=None):
+        from .services import CashFlowService
+        
+        # Get Cash Flow data
+        cf_service = CashFlowService(start_date, end_date, account=account, business_unit=business_unit)
+        cf_data = cf_service.get_cash_flow_statement()
+        
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A4,
+            topMargin=12*mm, bottomMargin=12*mm,
+            leftMargin=12*mm, rightMargin=12*mm
+        )
+        elements = []
+        
+        # Header
+        elements.extend(self._get_branded_header())
+        
+        # Document Title
+        title_table = Table(
+            [['CASH FLOW STATEMENT']],
+            colWidths=[doc.width]
+        )
+        title_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), NAVY_BLUE),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 14),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        elements.append(title_table)
+        
+        # Period and Account Info
+        elements.append(Spacer(1, 3*mm))
+        period_text = f"Period: {start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')}"
+        if account:
+            period_text += f"  |  Account: {account.bank_name}"
+        if business_unit:
+            period_text += f"  |  Unit: {business_unit}"
+        elements.append(Paragraph(period_text, self.styles['CenterAlign']))
+        elements.append(Spacer(1, 5*mm))
+        
+        # ======================================================================
+        # SUMMARY BOX
+        # ======================================================================
+        summary_data = [
+            ['Opening Balance:', self._format_currency(cf_data['opening_balance']), 
+             'Total Inflow:', self._format_currency(cf_data['total_inflow'])],
+            ['Closing Balance:', self._format_currency(cf_data['closing_balance']), 
+             'Total Outflow:', self._format_currency(cf_data['total_outflow'])],
+            ['', '', 'Net Cash Flow:', self._format_currency(cf_data['net_cash_flow'])],
+        ]
+        summary_table = Table(summary_data, colWidths=[90, 100, 90, 100])
+        summary_table.setStyle(TableStyle([
+            *self._get_base_table_style(),
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+            ('FONTNAME', (2, 0), (2, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BACKGROUND', (0, 0), (-1, -1), LIGHT_NAVY),
+            ('BOX', (0, 0), (-1, -1), 1, NAVY_BLUE),
+            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('ALIGN', (3, 0), (3, -1), 'RIGHT'),
+        ]))
+        elements.append(summary_table)
+        elements.append(Spacer(1, 5*mm))
+        
+        # ======================================================================
+        # CATEGORY BREAKDOWN
+        # ======================================================================
+        elements.append(Paragraph("SUMMARY BY CATEGORY", self.styles['SectionHeader']))
+        
+        # Inflows
+        inflow_data = [['INFLOWS', '']]
+        for cat, amount in cf_data['inflow_by_category'].items():
+            inflow_data.append([f"  {cat}", self._format_currency(amount)])
+        inflow_data.append(['Total Inflows', self._format_currency(cf_data['total_inflow'])])
+        
+        # Outflows
+        outflow_data = [['OUTFLOWS', '']]
+        for cat, amount in cf_data['outflow_by_category'].items():
+            outflow_data.append([f"  {cat}", self._format_currency(amount)])
+        outflow_data.append(['Total Outflows', self._format_currency(cf_data['total_outflow'])])
+        
+        # Combine side by side
+        cat_col_widths = [130, 80]
+        
+        inflow_table = Table(inflow_data, colWidths=cat_col_widths)
+        inflow_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT),           # All cells use Unicode font
+            ('FONTNAME', (0, 0), (-1, 0), UNICODE_FONT_BOLD),       # Header bold
+            ('FONTNAME', (0, -1), (-1, -1), UNICODE_FONT_BOLD),     # Total row bold
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('BACKGROUND', (0, 0), (-1, 0), LIGHT_NAVY),
+            ('LINEABOVE', (0, -1), (-1, -1), 1, NAVY_BLUE),
+            ('TEXTCOLOR', (1, 1), (1, -2), colors.green),
+        ]))
+        
+        outflow_table = Table(outflow_data, colWidths=cat_col_widths)
+        outflow_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT),           # All cells use Unicode font
+            ('FONTNAME', (0, 0), (-1, 0), UNICODE_FONT_BOLD),       # Header bold
+            ('FONTNAME', (0, -1), (-1, -1), UNICODE_FONT_BOLD),     # Total row bold
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('BACKGROUND', (0, 0), (-1, 0), LIGHT_NAVY),
+            ('LINEABOVE', (0, -1), (-1, -1), 1, NAVY_BLUE),
+            ('TEXTCOLOR', (1, 1), (1, -2), colors.red),
+        ]))
+        
+        combined_table = Table([[inflow_table, outflow_table]], colWidths=[220, 220])
+        combined_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ]))
+        elements.append(combined_table)
+        elements.append(Spacer(1, 5*mm))
+        
+        # ======================================================================
+        # TRANSACTION DETAILS
+        # ======================================================================
+        elements.append(Paragraph("TRANSACTION DETAILS", self.styles['SectionHeader']))
+        
+        trans_data = [['Date', 'Type', 'Description', 'Inflow', 'Outflow', 'Account']]
+        
+        # Opening Balance Row
+        trans_data.append([
+            start_date.strftime('%d/%m/%Y'),
+            'B/F',
+            'Opening Balance',
+            '',
+            '',
+            self._format_currency(cf_data['opening_balance'])
+        ])
+        
+        for t in cf_data['transactions']:
+            inflow_str = self._format_currency(t['inflow']) if t['inflow'] else ''
+            outflow_str = self._format_currency(t['outflow']) if t['outflow'] else ''
+            
+            desc = t['description']
+            if len(desc) > 30:
+                desc = desc[:27] + '...'
+            
+            trans_data.append([
+                t['date'].strftime('%d/%m/%Y'),
+                t['type'][:10],
+                desc,
+                inflow_str,
+                outflow_str,
+                t['account'][:12] if t['account'] else ''
+            ])
+        
+        # Totals Row
+        trans_data.append([
+            '', '', 'TOTALS',
+            self._format_currency(cf_data['total_inflow']),
+            self._format_currency(cf_data['total_outflow']),
+            ''
+        ])
+        
+        # Closing Balance Row
+        trans_data.append([
+            end_date.strftime('%d/%m/%Y'),
+            'C/F',
+            'Closing Balance',
+            '',
+            '',
+            self._format_currency(cf_data['closing_balance'])
+        ])
+        
+        trans_table = Table(trans_data, colWidths=[50, 50, 120, 60, 60, 60])
+        
+        style_commands = [
+            *self._get_base_table_style(),
+            ('BACKGROUND', (0, 0), (-1, 0), NAVY_BLUE),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 7),
+            ('ALIGN', (3, 0), (5, -1), 'RIGHT'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            # Opening balance row
+            ('BACKGROUND', (0, 1), (-1, 1), LIGHT_GOLD),
+            # Totals row
+            ('LINEABOVE', (0, -2), (-1, -2), 1.5, NAVY_BLUE),
+            ('FONTNAME', (2, -2), (-1, -2), UNICODE_FONT_BOLD),
+            ('BACKGROUND', (0, -2), (-1, -2), CREAM),
+            # Closing balance row
+            ('BACKGROUND', (0, -1), (-1, -1), LIGHT_GOLD),
+            ('FONTNAME', (0, -1), (-1, -1), UNICODE_FONT_BOLD),
+        ]
+        
+        # Color inflows green, outflows red
+        for i in range(2, len(trans_data) - 2):
+            if cf_data['transactions'][i-2]['inflow']:
+                style_commands.append(('TEXTCOLOR', (3, i), (3, i), colors.green))
+            if cf_data['transactions'][i-2]['outflow']:
+                style_commands.append(('TEXTCOLOR', (4, i), (4, i), colors.red))
+        
+        # Alternating row colors
+        for i in range(2, len(trans_data) - 2):
+            if i % 2 == 0:
+                style_commands.append(('BACKGROUND', (0, i), (-1, i), CREAM))
+        
+        trans_table.setStyle(TableStyle(style_commands))
+        elements.append(trans_table)
+        
+        # Generation timestamp
+        elements.append(Spacer(1, 5*mm))
+        elements.append(Paragraph(
+            f"Statement generated on {timezone.now().strftime('%d/%m/%Y at %H:%M')}",
+            self.styles['SmallText']
+        ))
+        
+        # Footer
+        elements.extend(self._get_footer())
+        
+        doc.build(elements)
+        
+        account_name = account.bank_name.replace(' ', '_') if account else 'All'
+        filename = f'CashFlow_{account_name}_{start_date}_{end_date}.pdf'
+        return self._create_response(buffer, filename)
+    
+
+
+
+class LoanStatementGenerator(PDFGenerator):
+    """Generate Loan Statement PDF for a single loan."""
+
+    def generate(self, loan):
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A4,
+            topMargin=10*mm, bottomMargin=10*mm,
+            leftMargin=12*mm, rightMargin=12*mm
+        )
+        elements = []
+
+        # Header
+        elements.extend(self._get_branded_header())
+
+        # Document Title
+        title_table = Table(
+            [['LOAN STATEMENT']],
+            colWidths=[doc.width]
+        )
+        title_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), NAVY_BLUE),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 14),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        elements.append(title_table)
+        elements.append(Spacer(1, 4*mm))
+
+        # Loan Info Box
+        loan_data = [
+            ['Loan ID:', f'LOAN-{loan.pk:05d}', 'Date Issued:', loan.date.strftime('%d/%m/%Y')],
+            ['Debtor:', loan.debtor.name, 'Phone:', loan.debtor.phone or 'N/A'],
+            ['Purpose:', loan.purpose or 'N/A', 'Repayment Mode:', loan.get_repayment_mode_display()],
+        ]
+        loan_table = Table(loan_data, colWidths=[70, 140, 80, 120])
+        loan_table.setStyle(TableStyle([
+            *self._get_base_table_style(),
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+            ('FONTNAME', (2, 0), (2, -1), UNICODE_FONT_BOLD),
+            ('TEXTCOLOR', (0, 0), (0, -1), NAVY_BLUE),
+            ('TEXTCOLOR', (2, 0), (2, -1), NAVY_BLUE),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BACKGROUND', (0, 0), (-1, -1), LIGHT_NAVY),
+            ('BOX', (0, 0), (-1, -1), 1, NAVY_BLUE),
+        ]))
+        elements.append(loan_table)
+        elements.append(Spacer(1, 4*mm))
+
+        # Amount Summary Box
+        summary_data = [
+            ['Loan Amount:', self._format_currency(loan.amount)],
+            ['Amount Repaid:', self._format_currency(loan.amount_repaid)],
+            ['Outstanding Balance:', self._format_currency(loan.outstanding_balance)],
+        ]
+        summary_table = Table(summary_data, colWidths=[150, 150])
+        summary_table.setStyle(TableStyle([
+            *self._get_base_table_style(),
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 11),
+            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('BACKGROUND', (0, 0), (-1, -1), LIGHT_GOLD),
+            ('BOX', (0, 0), (-1, -1), 2, GOLD),
+            ('TEXTCOLOR', (0, 2), (-1, 2), NAVY_BLUE),
+            ('FONTNAME', (0, 2), (-1, 2), UNICODE_FONT_BOLD),
+        ]))
+        elements.append(summary_table)
+        elements.append(Spacer(1, 5*mm))
+
+        # Repayment History
+        elements.append(Paragraph("REPAYMENT HISTORY", self.styles['SectionHeader']))
+
+        repayments = loan.repayments.all().order_by('date')
+
+        if repayments.exists():
+            repay_data = [['Date', 'Amount', 'Method', 'Account', 'Reference', 'Running Balance']]
+            
+            running_balance = loan.amount
+            for r in repayments:
+                running_balance -= r.amount
+                repay_data.append([
+                    r.date.strftime('%d/%m/%Y'),
+                    self._format_currency(r.amount),
+                    r.get_repayment_method_display(),
+                    r.payment_account.bank_name,
+                    r.reference or '-',
+                    self._format_currency(running_balance)
+                ])
+
+            repay_table = Table(repay_data, colWidths=[55, 70, 70, 80, 70, 75])
+            
+            style_commands = [
+                *self._get_base_table_style(),
+                ('BACKGROUND', (0, 0), (-1, 0), NAVY_BLUE),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), UNICODE_FONT_BOLD),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+                ('ALIGN', (5, 0), (5, -1), 'RIGHT'),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ]
+            
+            for i in range(1, len(repay_data)):
+                if i % 2 == 0:
+                    style_commands.append(('BACKGROUND', (0, i), (-1, i), CREAM))
+
+            repay_table.setStyle(TableStyle(style_commands))
+            elements.append(repay_table)
+        else:
+            elements.append(Paragraph("No repayments recorded yet.", self.styles['NormalText']))
+
+        elements.append(Spacer(1, 5*mm))
+
+        # Status
+        status_text = "FULLY REPAID ✓" if loan.is_fully_repaid else f"OUTSTANDING: {self._format_currency(loan.outstanding_balance)}"
+        status_color = "#28a745" if loan.is_fully_repaid else "#dc3545"
+        
+        elements.append(Paragraph(
+            f'<b>Status:</b> <font color="{status_color}">{status_text}</font>',
+            self.styles['NormalText']
+        ))
+
+        # Notes
+        if loan.notes:
+            elements.append(Spacer(1, 3*mm))
+            elements.append(Paragraph(f"<b>Notes:</b> {loan.notes}", self.styles['SmallText']))
+
+        # Generation timestamp
+        elements.append(Spacer(1, 5*mm))
+        elements.append(Paragraph(
+            f"Statement generated on {timezone.now().strftime('%d/%m/%Y at %H:%M')}",
+            self.styles['SmallText']
+        ))
+
+        # Footer
+        elements.extend(self._get_footer())
+
+        doc.build(elements)
+        return self._create_response(buffer, f'LoanStatement_LOAN-{loan.pk:05d}.pdf')
+    
+
+
+class LoanReportGenerator(PDFGenerator):
+    """Generate Loan Report PDF for a period."""
+
+    def generate(self, start_date, end_date):
+        from .models import Loan
+        
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A4,
+            topMargin=10*mm, bottomMargin=10*mm,
+            leftMargin=10*mm, rightMargin=10*mm
+        )
+        elements = []
+
+        # Header
+        elements.extend(self._get_branded_header())
+
+        # Document Title
+        title_table = Table(
+            [['LOAN REPORT']],
+            colWidths=[doc.width]
+        )
+        title_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), NAVY_BLUE),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 14),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        elements.append(title_table)
+        
+        # Period
+        elements.append(Spacer(1, 3*mm))
+        elements.append(Paragraph(
+            f"Period: {start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')}",
+            self.styles['CenterAlign']
+        ))
+        elements.append(Spacer(1, 5*mm))
+
+        # Get loans
+        loans = Loan.objects.filter(date__gte=start_date, date__lte=end_date).order_by('date')
+
+        if not loans.exists():
+            elements.append(Paragraph("No loans found for this period.", self.styles['NormalText']))
+        else:
+            # Table
+            loan_data = [['Loan ID', 'Date', 'Debtor', 'Amount', 'Repaid', 'Outstanding', 'Status']]
+            
+            total_amount = Decimal('0')
+            total_repaid = Decimal('0')
+            total_outstanding = Decimal('0')
+            
+            for loan in loans:
+                status = "✓ Cleared" if loan.is_fully_repaid else "Outstanding"
+                loan_data.append([
+                    f'LOAN-{loan.pk:05d}',
+                    loan.date.strftime('%d/%m/%Y'),
+                    loan.debtor.name[:20] + '..' if len(loan.debtor.name) > 20 else loan.debtor.name,
+                    self._format_currency(loan.amount),
+                    self._format_currency(loan.amount_repaid),
+                    self._format_currency(loan.outstanding_balance),
+                    status
+                ])
+                total_amount += loan.amount
+                total_repaid += loan.amount_repaid
+                total_outstanding += loan.outstanding_balance
+
+            # Totals row
+            loan_data.append([
+                '', '', 'TOTALS:',
+                self._format_currency(total_amount),
+                self._format_currency(total_repaid),
+                self._format_currency(total_outstanding),
+                ''
+            ])
+
+            loan_table = Table(loan_data, colWidths=[55, 50, 85, 60, 60, 60, 55])
+            
+            style_commands = [
+                *self._get_base_table_style(),
+                ('BACKGROUND', (0, 0), (-1, 0), NAVY_BLUE),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), UNICODE_FONT_BOLD),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('ALIGN', (3, 0), (5, -1), 'RIGHT'),
+                ('ALIGN', (6, 0), (6, -1), 'CENTER'),
+                ('GRID', (0, 0), (-1, -2), 0.5, colors.lightgrey),
+                ('LINEABOVE', (0, -1), (-1, -1), 1.5, NAVY_BLUE),
+                ('FONTNAME', (2, -1), (-1, -1), UNICODE_FONT_BOLD),
+            ]
+            
+            for i in range(1, len(loan_data) - 1):
+                if i % 2 == 0:
+                    style_commands.append(('BACKGROUND', (0, i), (-1, i), CREAM))
+
+            loan_table.setStyle(TableStyle(style_commands))
+            elements.append(loan_table)
+
+            # Summary
+            elements.append(Spacer(1, 5*mm))
+            summary_data = [
+                ['Total Loans Issued:', f'{loans.count()}', 'Total Amount:', self._format_currency(total_amount)],
+                ['Fully Repaid:', f'{loans.filter(is_fully_repaid=True).count()}', 'Total Repaid:', self._format_currency(total_repaid)],
+                ['Outstanding:', f'{loans.filter(is_fully_repaid=False).count()}', 'Total Outstanding:', self._format_currency(total_outstanding)],
+            ]
+            summary_table = Table(summary_data, colWidths=[90, 40, 90, 100])
+            summary_table.setStyle(TableStyle([
+                *self._get_base_table_style(),
+                ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+                ('FONTNAME', (2, 0), (2, -1), UNICODE_FONT_BOLD),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BACKGROUND', (0, 0), (-1, -1), LIGHT_GOLD),
+                ('BOX', (0, 0), (-1, -1), 1, GOLD),
+            ]))
+            elements.append(summary_table)
+
+        # Generation timestamp
+        elements.append(Spacer(1, 5*mm))
+        elements.append(Paragraph(
+            f"Report generated on {timezone.now().strftime('%d/%m/%Y at %H:%M')}",
+            self.styles['SmallText']
+        ))
+
+        # Footer
+        elements.extend(self._get_footer())
+
+        doc.build(elements)
+        return self._create_response(buffer, f'LoanReport_{start_date}_{end_date}.pdf')
