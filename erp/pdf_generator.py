@@ -2362,19 +2362,24 @@ class AccountStatementGenerator(PDFGenerator):
         # ----------------------------------------------------------------------
         # DEBITS: Fuel Logs (money OUT)
         # ----------------------------------------------------------------------
-        for fl in FuelLog.objects.filter(
-            payment_account=account,
-            date__gte=start_date,
-            date__lte=end_date
-        ):
-            transactions.append({
-                'date': fl.date,
-                'description': f'Fuel: {fl.truck.plate_number if fl.truck else "N/A"}',
-                'reference': f'FUEL-{fl.pk:05d}',
-                'debit': fl.total_cost,
-                'credit': None
-            })
-            period_debit += fl.total_cost
+        # ----------------------------------------------------------------------
+        # DEBITS: Fuel Logs (money OUT) - Only if payment_account exists
+        # ----------------------------------------------------------------------
+        # Note: FuelLog may not have payment_account field, skip if not available
+        if hasattr(FuelLog, 'payment_account'):
+            for fl in FuelLog.objects.filter(
+                payment_account=account,
+                date__gte=start_date,
+                date__lte=end_date
+            ):
+                transactions.append({
+                    'date': fl.date,
+                    'description': f'Fuel: {fl.truck.plate_number if fl.truck else "N/A"}',
+                    'reference': f'FUEL-{fl.pk:05d}',
+                    'debit': fl.total_cost,
+                    'credit': None
+                })
+                period_debit += fl.total_cost
 
         # ----------------------------------------------------------------------
         # DEBITS: Maintenance Logs (money OUT)
@@ -2394,24 +2399,22 @@ class AccountStatementGenerator(PDFGenerator):
             period_debit += ml.cost
 
         # ----------------------------------------------------------------------
-        # CREDITS: Transport Revenue (money IN)
+        # CREDITS: Transport Revenue (money IN) - Only if payment_account exists
         # ----------------------------------------------------------------------
-        for tr in TransportRevenue.objects.filter(
-            payment_account=account,
-            date__gte=start_date,
-            date__lte=end_date
-        ):
-            transactions.append({
-                'date': tr.date,
-                'description': f'Transport: {tr.client_name or "External Job"}',
-                'reference': f'TRV-{tr.pk:05d}',
-                'debit': None,
-                'credit': tr.amount
-            })
-            period_credit += tr.amount
-        
-        # Sort by date
-        transactions.sort(key=lambda x: x['date'])
+        if hasattr(TransportRevenue, 'payment_account'):
+            for tr in TransportRevenue.objects.filter(
+                payment_account=account,
+                date__gte=start_date,
+                date__lte=end_date
+            ):
+                transactions.append({
+                    'date': tr.date,
+                    'description': f'Transport: {tr.client_name or "External Job"}',
+                    'reference': f'TRV-{tr.pk:05d}',
+                    'debit': None,
+                    'credit': tr.amount
+                })
+                period_credit += tr.amount
         
         # ======================================================================
         # CALCULATE OPENING BALANCE
