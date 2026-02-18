@@ -2070,7 +2070,7 @@ class AccountStatementGenerator(PDFGenerator):
     """Generate professional branded Account Statement on A4 (like a bank statement)."""
 
     def generate(self, account, start_date=None, end_date=None):
-        from .models import Payment, Expense, ProcurementLog, CashRefund, BankCharge, AccountTransfer, VendorPayment, SandSale, Loan, LoanRepayment
+        from .models import Payment, Expense, ProcurementLog, CashRefund, BankCharge, AccountTransfer, VendorPayment, SandSale, Loan, LoanRepayment, TeamPayment, FuelLog, MaintenanceLog, TransportRevenue
         
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
@@ -2316,6 +2316,99 @@ class AccountStatementGenerator(PDFGenerator):
                 'credit': t.amount
             })
             period_credit += t.amount
+
+
+            # ----------------------------------------------------------------------
+        # DEBITS: Paid Procurements (money OUT)
+        # ----------------------------------------------------------------------
+        for p in ProcurementLog.objects.filter(
+            payment_account=account,
+            date__gte=start_date,
+            date__lte=end_date,
+            is_paid=True
+        ):
+            transactions.append({
+                'date': p.date,
+                'description': f'Procurement: {p.material.get_name_display()}',
+                'reference': f'PROC-{p.pk:05d}',
+                'debit': p.total_cost,
+                'credit': None
+            })
+            period_debit += p.total_cost
+
+        # ----------------------------------------------------------------------
+        # DEBITS: Team Payments (money OUT)
+        # ----------------------------------------------------------------------
+        for tp in TeamPayment.objects.filter(
+            payment_account=account,
+            date__gte=start_date,
+            date__lte=end_date
+        ):
+            if tp.team:
+                desc = f'Team Payment: {tp.team.name}'
+            elif tp.employee:
+                desc = f'Team Payment: {tp.employee.name}'
+            else:
+                desc = f'Team Payment: {tp.get_payment_type_display()}'
+            transactions.append({
+                'date': tp.date,
+                'description': desc,
+                'reference': tp.reference or '',
+                'debit': tp.amount_paid,
+                'credit': None
+            })
+            period_debit += tp.amount_paid
+
+        # ----------------------------------------------------------------------
+        # DEBITS: Fuel Logs (money OUT)
+        # ----------------------------------------------------------------------
+        for fl in FuelLog.objects.filter(
+            payment_account=account,
+            date__gte=start_date,
+            date__lte=end_date
+        ):
+            transactions.append({
+                'date': fl.date,
+                'description': f'Fuel: {fl.truck.plate_number if fl.truck else "N/A"}',
+                'reference': f'FUEL-{fl.pk:05d}',
+                'debit': fl.total_cost,
+                'credit': None
+            })
+            period_debit += fl.total_cost
+
+        # ----------------------------------------------------------------------
+        # DEBITS: Maintenance Logs (money OUT)
+        # ----------------------------------------------------------------------
+        for ml in MaintenanceLog.objects.filter(
+            payment_account=account,
+            date__gte=start_date,
+            date__lte=end_date
+        ):
+            transactions.append({
+                'date': ml.date,
+                'description': f'Maintenance: {ml.truck.plate_number if ml.truck else "N/A"}',
+                'reference': f'MAINT-{ml.pk:05d}',
+                'debit': ml.cost,
+                'credit': None
+            })
+            period_debit += ml.cost
+
+        # ----------------------------------------------------------------------
+        # CREDITS: Transport Revenue (money IN)
+        # ----------------------------------------------------------------------
+        for tr in TransportRevenue.objects.filter(
+            payment_account=account,
+            date__gte=start_date,
+            date__lte=end_date
+        ):
+            transactions.append({
+                'date': tr.date,
+                'description': f'Transport: {tr.client_name or "External Job"}',
+                'reference': f'TRV-{tr.pk:05d}',
+                'debit': None,
+                'credit': tr.amount
+            })
+            period_credit += tr.amount
         
         # Sort by date
         transactions.sort(key=lambda x: x['date'])
