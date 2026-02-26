@@ -808,6 +808,22 @@ class SupplyLog(models.Model):
         if self.delivery_type == 'SELF_PICKUP' and not self.pickup_authorized_by:
             raise ValidationError({'pickup_authorized_by': "Authorization required for Self-Pickup."})
 
+        # NEW: Validate quantity doesn't exceed order item remaining
+        if self.order_item:
+            quantity_to_deliver = self.quantity_loaded - self.breakages - self.quantity_returned
+            remaining = self.order_item.quantity_requested - self.order_item.quantity_supplied
+            
+            # If editing, add back the old quantity_delivered to remaining
+            if self.pk:
+                old = SupplyLog.objects.get(pk=self.pk)
+                if old.order_item_id == self.order_item_id:
+                    remaining += old.quantity_delivered
+            
+            if quantity_to_deliver > remaining:
+                raise ValidationError({
+                    'quantity_loaded': f"Cannot supply {quantity_to_deliver} blocks. Only {remaining} remaining on this order item."
+                })
+
         # Credit Check
         if self.order_item:
             price = self.order_item.agreed_price
