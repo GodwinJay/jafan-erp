@@ -620,7 +620,7 @@ class SupplyLogAdmin(RestrictedAdmin):
         cols = [
             "date", "delivery_type", "customer", "site", "block_type",
             "quantity_loaded", "quantity_returned", "quantity_delivered",
-            "total_value_display"
+            "total_value_display", "logistics_income_display"
         ]
         if request.user.is_superuser:
             cols.extend(["cogs_display", "gross_profit_display"])
@@ -657,6 +657,12 @@ class SupplyLogAdmin(RestrictedAdmin):
         if obj.gross_profit_on_sale >= 0:
             return format_html('<span style="color: green;">₦{}</span>', formatted_amount)
         return format_html('<span style="color: red;">₦{}</span>', formatted_amount)
+
+    @admin.display(description="Logistics Income")
+    def logistics_income_display(self, obj):
+        if obj.logistics_income:
+            return f"₦{obj.logistics_income:,.2f}"
+        return "₦0.00"
 
     @admin.display(description="COGS")
     def cogs_display(self, obj):
