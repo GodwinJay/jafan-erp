@@ -2416,6 +2416,8 @@ class AccountStatementGenerator(PDFGenerator):
                 })
                 period_credit += tr.amount
         
+        # Sort ALL transactions by date
+        transactions.sort(key=lambda x: x['date'])
         # ======================================================================
         # CALCULATE OPENING BALANCE
         # Opening = Closing - Credits + Debits
