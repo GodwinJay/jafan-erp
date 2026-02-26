@@ -679,20 +679,45 @@ class SupplyLogAdmin(RestrictedAdmin):
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "site":
-            # Start with empty queryset for new records
-            kwargs["queryset"] = Site.objects.none()
+            # Check if we're editing an existing object or if customer is in POST data
+            if request.method == 'POST' and request.POST.get('customer'):
+                customer_id = request.POST.get('customer')
+                kwargs["queryset"] = Site.objects.filter(customer_id=customer_id)
+            elif hasattr(self, 'obj_instance') and self.obj_instance and self.obj_instance.customer_id:
+                kwargs["queryset"] = Site.objects.filter(customer_id=self.obj_instance.customer_id)
+            else:
+                kwargs["queryset"] = Site.objects.none()
             
         elif db_field.name == "sales_order":
-            # Show only non-completed, non-cancelled orders
-            kwargs["queryset"] = SalesOrder.objects.exclude(
-                status__in=['COMPLETED', 'CANCELLED']
-            ).order_by('-date')
+            if request.method == 'POST' and request.POST.get('customer'):
+                customer_id = request.POST.get('customer')
+                kwargs["queryset"] = SalesOrder.objects.filter(
+                    customer_id=customer_id
+                ).exclude(status__in=['COMPLETED', 'CANCELLED']).order_by('-date')
+            elif hasattr(self, 'obj_instance') and self.obj_instance and self.obj_instance.customer_id:
+                kwargs["queryset"] = SalesOrder.objects.filter(
+                    customer_id=self.obj_instance.customer_id
+                ).exclude(status__in=['COMPLETED', 'CANCELLED']).order_by('-date')
+            else:
+                kwargs["queryset"] = SalesOrder.objects.exclude(
+                    status__in=['COMPLETED', 'CANCELLED']
+                ).order_by('-date')
                 
         elif db_field.name == "order_item":
-            # Start with empty queryset for new records
-            kwargs["queryset"] = SalesOrderItem.objects.none()
+            if request.method == 'POST' and request.POST.get('sales_order'):
+                order_id = request.POST.get('sales_order')
+                kwargs["queryset"] = SalesOrderItem.objects.filter(order_id=order_id)
+            elif hasattr(self, 'obj_instance') and self.obj_instance and self.obj_instance.sales_order_id:
+                kwargs["queryset"] = SalesOrderItem.objects.filter(order_id=self.obj_instance.sales_order_id)
+            else:
+                kwargs["queryset"] = SalesOrderItem.objects.none()
                 
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def get_form(self, request, obj=None, **kwargs):
+        # Store the object instance for use in formfield_for_foreignkey
+        self.obj_instance = obj
+        return super().get_form(request, obj, **kwargs)
 
 
 @admin.register(Team)
