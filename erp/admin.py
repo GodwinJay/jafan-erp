@@ -1015,12 +1015,12 @@ class BreakageLogAdmin(RestrictedAdmin):
 class FuelLogAdmin(RestrictedAdmin):
     list_display = [
         "date", "fuel_type", "destination_display", "driver",
-        "quantity", "cost_per_liter", "total_cost", "payment_method", "dispensed_by"
+        "quantity", "cost_per_liter", "total_cost", "is_paid", "payment_account", "dispensed_by"
     ]
-    list_filter = ["date", "fuel_type", "destination_type", "truck", "machine", "transport_asset", "payment_method"]
+    list_filter = ["date", "fuel_type", "destination_type", "truck", "machine", "transport_asset", "is_paid", "payment_method"]
     search_fields = ["truck__name", "machine__name", "transport_asset__name", "driver__name", "fuel_station", "remark"]
     date_hierarchy = "date"
-    autocomplete_fields = ["truck", "machine", "driver"]
+    autocomplete_fields = ["truck", "machine", "driver", "payment_account"]
     readonly_fields = ["total_cost", "dispensed_by"]
 
     fieldsets = (
@@ -1031,8 +1031,8 @@ class FuelLogAdmin(RestrictedAdmin):
             "fields": ("quantity", "cost_per_liter", "total_cost"),
             "description": "Cost per liter auto-fills from Material price for Diesel, but you can override for Petrol/Oil."
         }),
-        ("Purchase Details", {
-            "fields": ("fuel_station", "payment_method")
+        ("Payment", {
+            "fields": ("fuel_station", "payment_method", "is_paid", "payment_account")
         }),
         ("Metrics (Optional)", {
             "fields": ("engine_hours",)
@@ -1050,7 +1050,8 @@ class FuelLogAdmin(RestrictedAdmin):
     destination_display.short_description = "Destination"
 
     def save_model(self, request, obj, form, change):
-        if not obj.dispensed_by: obj.dispensed_by = request.user
+        if not obj.dispensed_by:
+            obj.dispensed_by = request.user
         super().save_model(request, obj, form, change)
 
 

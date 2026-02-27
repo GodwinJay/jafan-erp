@@ -1143,6 +1143,11 @@ class FuelLog(models.Model):
     
     fuel_station = models.CharField(max_length=100, blank=True, null=True)
     payment_method = models.CharField(max_length=20, default='CASH')
+    is_paid = models.BooleanField(default=True)
+    payment_account = models.ForeignKey(
+        PaymentAccount, on_delete=models.PROTECT, null=True, blank=True,
+        help_text="Required if paid"
+    )
     dispensed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
     remark = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1157,9 +1162,14 @@ class FuelLog(models.Model):
         return f"{self.quantity}L {self.fuel_type} to {dest}"
 
     def clean(self):
-        if self.destination_type == 'TRUCK' and not self.truck: raise ValidationError("Select a Truck.")
-        if self.destination_type == 'MACHINE' and not self.machine: raise ValidationError("Select a Machine.")
-        if self.destination_type == 'ASSET' and not self.transport_asset: raise ValidationError("Select a Transport Asset.")
+        if self.destination_type == 'TRUCK' and not self.truck:
+            raise ValidationError("Select a Truck.")
+        if self.destination_type == 'MACHINE' and not self.machine:
+            raise ValidationError("Select a Machine.")
+        if self.destination_type == 'ASSET' and not self.transport_asset:
+            raise ValidationError("Select a Transport Asset.")
+        if self.is_paid and not self.payment_account:
+            raise ValidationError({'payment_account': 'Payment account is required when marked as paid.'})
         
         # STOCK CHECK FOR DIESEL
         if self.pk is None and self.fuel_type == 'DIESEL':
@@ -1170,25 +1180,46 @@ class FuelLog(models.Model):
     @transaction.atomic
     def save(self, *args, **kwargs):
         is_edit = self.pk is not None
+        
         if is_edit:
             old = FuelLog.objects.select_for_update().get(pk=self.pk)
+            # Reverse old diesel stock
             if old.fuel_type == 'DIESEL':
                 Material.objects.filter(name='DIESEL').update(current_stock=F('current_stock') + old.quantity)
+            # Reverse old payment
+            if old.is_paid and old.payment_account:
+                PaymentAccount.objects.filter(pk=old.payment_account.pk).update(
+                    current_balance=F('current_balance') + old.total_cost
+                )
 
         if self.fuel_type == 'DIESEL' and not self.cost_per_liter:
             mat = Material.objects.filter(name='DIESEL').first()
-            if mat: self.cost_per_liter = mat.unit_price
+            if mat:
+                self.cost_per_liter = mat.unit_price
         
         self.total_cost = self.quantity * self.cost_per_liter
         super().save(*args, **kwargs)
 
+        # Apply new diesel stock
         if self.fuel_type == 'DIESEL':
             Material.objects.filter(name='DIESEL').update(current_stock=F('current_stock') - self.quantity)
+        
+        # Apply new payment
+        if self.is_paid and self.payment_account:
+            PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+                current_balance=F('current_balance') - self.total_cost
+            )
 
     @transaction.atomic
     def delete(self, *args, **kwargs):
+        # Reverse diesel stock
         if self.fuel_type == 'DIESEL':
             Material.objects.filter(name='DIESEL').update(current_stock=F('current_stock') + self.quantity)
+        # Reverse payment
+        if self.is_paid and self.payment_account:
+            PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+                current_balance=F('current_balance') + self.total_cost
+            )
         super().delete(*args, **kwargs)
 
 
