@@ -2409,7 +2409,7 @@ class AccountStatementGenerator(PDFGenerator):
             ):
                 transactions.append({
                     'date': tr.date,
-                    'description': f'Transport: {tr.client_name or "External Job"}',
+                    'description': f'Transport: {tr.customer_name or "External Job"}',
                     'reference': f'TRV-{tr.pk:05d}',
                     'debit': None,
                     'credit': tr.amount
