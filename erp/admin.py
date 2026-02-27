@@ -1488,7 +1488,7 @@ class LoanAdmin(RestrictedAdmin):
         outstanding = obj.outstanding_balance
         if outstanding > 0:
             return format_html('<span style="color: #dc3545; font-weight: bold;">₦{}</span>', f"{outstanding:,.2f}")
-        return format_html('<span style="color: #28a745;">✓ Cleared</span>')
+        return mark_safe('<span style="color: #28a745;">✓ Cleared</span>')
 
     @admin.display(description="Progress")
     def progress_display(self, obj):
