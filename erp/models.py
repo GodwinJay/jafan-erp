@@ -1015,7 +1015,7 @@ class ReturnLog(models.Model):
                 BlockType.objects.filter(pk=target.pk).update(current_stock=F('current_stock') - old.quantity_returned)
 
         if self.credit_customer:
-            self.credit_value = (self.quantity_returned * self.unit_price) - self.restocking_fee
+            self.credit_value = (self.quantity_returned * self.unit_price) - (self.quantity_returned * self.restocking_fee)
             if self.credit_value < 0: self.credit_value = 0
         else: self.credit_value = 0
 
