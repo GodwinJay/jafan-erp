@@ -3070,47 +3070,57 @@ class LoanStatementGenerator(PDFGenerator):
         elements.append(summary_table)
         elements.append(Spacer(1, 5*mm))
 
-        # Repayment History
-        elements.append(Paragraph("REPAYMENT HISTORY", self.styles['SectionHeader']))
+        # Transaction History (Loan + Repayments)
+        elements.append(Paragraph("TRANSACTION HISTORY", self.styles['SectionHeader']))
 
         repayments = loan.repayments.all().order_by('date')
 
-        if repayments.exists():
-            repay_data = [['Date', 'Amount', 'Method', 'Account', 'Reference', 'Running Balance']]
-            
-            running_balance = loan.amount
-            for r in repayments:
-                running_balance -= r.amount
-                repay_data.append([
-                    r.date.strftime('%d/%m/%Y'),
-                    self._format_currency(r.amount),
-                    r.get_repayment_method_display(),
-                    r.payment_account.bank_name,
-                    r.reference or '-',
-                    self._format_currency(running_balance)
-                ])
+        trans_data = [['Date', 'Description', 'Debit', 'Credit', 'Balance']]
+        
+        # First row: Loan issued
+        running_balance = loan.amount
+        trans_data.append([
+            loan.date.strftime('%d/%m/%Y'),
+            f'Loan Issued ({loan.payment_account.bank_name})',
+            self._format_currency(loan.amount),
+            '-',
+            self._format_currency(running_balance)
+        ])
 
-            repay_table = Table(repay_data, colWidths=[55, 70, 70, 80, 70, 75])
-            
-            style_commands = [
-                *self._get_base_table_style(),
-                ('BACKGROUND', (0, 0), (-1, 0), NAVY_BLUE),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('FONTNAME', (0, 0), (-1, 0), UNICODE_FONT_BOLD),
-                ('FONTSIZE', (0, 0), (-1, -1), 9),
-                ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-                ('ALIGN', (5, 0), (5, -1), 'RIGHT'),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
-            ]
-            
-            for i in range(1, len(repay_data)):
-                if i % 2 == 0:
-                    style_commands.append(('BACKGROUND', (0, i), (-1, i), CREAM))
+        # Repayment rows
+        for r in repayments:
+            running_balance -= r.amount
+            trans_data.append([
+                r.date.strftime('%d/%m/%Y'),
+                f'Repayment ({r.get_repayment_method_display()})',
+                '-',
+                self._format_currency(r.amount),
+                self._format_currency(running_balance)
+            ])
 
-            repay_table.setStyle(TableStyle(style_commands))
-            elements.append(repay_table)
-        else:
-            elements.append(Paragraph("No repayments recorded yet.", self.styles['NormalText']))
+        trans_table = Table(trans_data, colWidths=[60, 150, 75, 75, 75])
+        
+        style_commands = [
+            *self._get_base_table_style(),
+            ('BACKGROUND', (0, 0), (-1, 0), NAVY_BLUE),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('ALIGN', (2, 0), (-1, -1), 'RIGHT'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            # Loan issued row - highlight
+            ('BACKGROUND', (0, 1), (-1, 1), LIGHT_GOLD),
+            ('TEXTCOLOR', (2, 1), (2, 1), colors.HexColor('#dc3545')),  # Debit in red
+        ]
+        
+        # Alternating colors for repayments and green for credits
+        for i in range(2, len(trans_data)):
+            if i % 2 == 0:
+                style_commands.append(('BACKGROUND', (0, i), (-1, i), CREAM))
+            style_commands.append(('TEXTCOLOR', (3, i), (3, i), colors.HexColor('#28a745')))  # Credit in green
+
+        trans_table.setStyle(TableStyle(style_commands))
+        elements.append(trans_table)
 
         elements.append(Spacer(1, 5*mm))
 
