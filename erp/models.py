@@ -1273,6 +1273,11 @@ class TransportRevenue(models.Model):
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     is_paid = models.BooleanField(default=True)
     payment_method = models.CharField(max_length=20, default='CASH')
+    payment_account = models.ForeignKey(
+        PaymentAccount, on_delete=models.PROTECT, null=True, blank=True,
+        limit_choices_to={'business_unit': 'TRANSPORT'},
+        help_text="Required if paid"
+    )
     description = models.TextField(blank=True)
     recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1283,6 +1288,39 @@ class TransportRevenue(models.Model):
 
     def __str__(self):
         return f"{self.date} | {self.job_type} | ₦{self.amount:,.2f}"
+
+    def clean(self):
+        if self.is_paid and not self.payment_account:
+            raise ValidationError({'payment_account': 'Payment account is required when marked as paid.'})
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_edit = self.pk is not None
+
+        if is_edit:
+            old = TransportRevenue.objects.select_for_update().get(pk=self.pk)
+            # Reverse old payment
+            if old.is_paid and old.payment_account:
+                PaymentAccount.objects.filter(pk=old.payment_account.pk).update(
+                    current_balance=F('current_balance') - old.amount
+                )
+
+        super().save(*args, **kwargs)
+
+        # Apply new payment
+        if self.is_paid and self.payment_account:
+            PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+                current_balance=F('current_balance') + self.amount
+            )
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        # Reverse payment
+        if self.is_paid and self.payment_account:
+            PaymentAccount.objects.filter(pk=self.payment_account.pk).update(
+                current_balance=F('current_balance') - self.amount
+            )
+        super().delete(*args, **kwargs)
 
 
 class BankCharge(models.Model):

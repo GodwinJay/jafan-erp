@@ -1131,11 +1131,12 @@ class TransportAssetAdmin(RestrictedAdmin):
 
 @admin.register(TransportRevenue)
 class TransportRevenueAdmin(RestrictedAdmin):
-    list_display = ['date', 'job_type', 'truck', 'driver', 'customer_name', 'trips', 'amount', 'is_paid', 'payment_method']
+    list_display = ['date', 'job_type', 'truck', 'driver', 'customer_name', 'trips', 'amount', 'is_paid', 'payment_method', 'payment_account']
     list_filter = ['job_type', 'is_paid', 'payment_method', 'truck', 'date']
     search_fields = ['customer_name', 'customer_phone', 'delivery_address', 'description']
     date_hierarchy = 'date'
     list_editable = ['is_paid']
+    autocomplete_fields = ['truck', 'driver', 'payment_account']
 
     fieldsets = (
         ('Job Details', {
@@ -1145,7 +1146,7 @@ class TransportRevenueAdmin(RestrictedAdmin):
             'fields': ('customer_name', 'customer_phone', 'delivery_address')
         }),
         ('Billing', {
-            'fields': ('trips', 'amount', 'is_paid', 'payment_method')
+            'fields': ('trips', 'amount', 'is_paid', 'payment_method', 'payment_account')
         }),
         ('Notes', {
             'fields': ('description',),
