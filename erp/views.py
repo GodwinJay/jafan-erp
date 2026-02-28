@@ -51,6 +51,8 @@ def dashboard_view(request):
     Executive Dashboard with Accurate P&L.
     Shows true profitability using industry-standard COGS calculation.
     """
+    from .models import ProductionLog, FuelLog, MaintenanceLog, Expense
+    
     today = timezone.now().date()
     
     # Date range from request or default to current month
@@ -90,6 +92,89 @@ def dashboard_view(request):
         is_internal=False
     ).aggregate(total=Sum('account_balance'))['total'] or Decimal('0')
     
+    # Production count for the period
+    production_count = ProductionLog.objects.filter(
+        date__gte=start_date,
+        date__lte=end_date
+    ).aggregate(total=Sum('quantity_produced'))['total'] or 0
+    
+    # Transport data for the period
+    transport_revenue = SupplyLog.objects.filter(
+        date__gte=start_date,
+        date__lte=end_date,
+        delivery_type='DELIVERED'
+    ).aggregate(total=Sum('logistics_income'))['total'] or Decimal('0')
+    
+    transport_fuel = FuelLog.objects.filter(
+        date__gte=start_date,
+        date__lte=end_date,
+        destination_type__in=['TRUCK', 'ASSET']
+    ).aggregate(total=Sum('total_cost'))['total'] or Decimal('0')
+    
+    transport_maintenance = MaintenanceLog.objects.filter(
+        date__gte=start_date,
+        date__lte=end_date,
+        target_type__in=['TRUCK', 'ASSET']
+    ).aggregate(total=Sum('cost'))['total'] or Decimal('0')
+    
+    transport_expenses = Expense.objects.filter(
+        date__gte=start_date,
+        date__lte=end_date,
+        business_unit='TRANSPORT',
+        is_paid=True
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+    
+    transport_total_expense = transport_fuel + transport_maintenance + transport_expenses
+    transport_net_profit = transport_revenue - transport_total_expense
+    
+    # Fuel Audit
+    actual_fuel = FuelLog.objects.filter(
+        date__gte=start_date,
+        date__lte=end_date,
+        destination_type='TRUCK',
+        fuel_type='DIESEL'
+    ).aggregate(total=Sum('quantity'))['total'] or Decimal('0')
+    
+    # Calculate expected fuel based on trips
+    expected_fuel = Decimal('0')
+    outside_trips = 0
+    active_trucks = Truck.objects.filter(is_active=True)
+    supplies_period = SupplyLog.objects.filter(date__gte=start_date, date__lte=end_date, delivery_type='DELIVERED')
+    
+    for truck in active_trucks:
+        trips_count = supplies_period.filter(truck=truck).count()
+        if truck.expected_trips > 0:
+            consumption_rate = truck.benchmark_fuel / truck.expected_trips
+            expected_fuel += (Decimal(trips_count) * consumption_rate)
+    
+    for log in supplies_period:
+        if log.site and log.site.is_outside_town:
+            outside_trips += 1
+    
+    # Build stats dict for template
+    stats = {
+        'month_name': start_date.strftime('%B'),
+        'year': start_date.year,
+        'revenue': pl_data['revenue']['total'],
+        'expenses': pl_data['cogs']['total'] + pl_data['operating_expenses']['total'],
+        'net_profit': pl_data['net_profit'],
+        'production_count': production_count,
+    }
+    
+    transport = {
+        'revenue': transport_revenue,
+        'fuel_cost': transport_fuel,
+        'maintenance_cost': transport_maintenance,
+        'total_expense': transport_total_expense,
+        'net_profit': transport_net_profit,
+        'fuel_audit': {
+            'actual_liters': actual_fuel,
+            'expected_liters': expected_fuel,
+            'variance': actual_fuel - expected_fuel,
+            'outside_trips': outside_trips,
+        }
+    }
+    
     context = {
         "title": "Executive Dashboard",
         "site_header": "Jafan ERP",
@@ -98,7 +183,13 @@ def dashboard_view(request):
         "start_date": start_date,
         "end_date": end_date,
         
-        # P&L Summary
+        # Stats for Performance Overview cards
+        "stats": stats,
+        
+        # Transport section
+        "transport": transport,
+        
+        # P&L Details (for other sections if needed)
         "revenue": pl_data['revenue']['total'],
         "revenue_breakdown": pl_data['revenue']['by_block_type'],
         "blocks_sold": pl_data['revenue']['total_quantity_sold'],
