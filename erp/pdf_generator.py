@@ -1497,11 +1497,17 @@ class ProformaInvoiceGenerator(PDFGenerator):
         elements.append(Spacer(1, 4 * mm))
 
         # =========================================================
-        # 5. ORDER DETAILS (UPDATED FOR PER-ITEM DISCOUNT)
+        # 5. ORDER DETAILS (UPDATED FOR PER-ITEM DISCOUNT + SURCHARGE)
         # =========================================================
         elements.append(Paragraph("ORDER DETAILS:", self.styles['SectionHeader']))
 
-        items_data = [['Item', 'Qty', 'Unit Price', 'Discount', 'Net Price', 'Amount']]
+        # Check if there's a surcharge
+        has_surcharge = sales_order.surcharge_per_block > 0
+
+        if has_surcharge:
+            items_data = [['Item', 'Qty', 'Base Price', 'Discount', 'Surcharge', 'Net Price', 'Amount']]
+        else:
+            items_data = [['Item', 'Qty', 'Unit Price', 'Discount', 'Net Price', 'Amount']]
 
         subtotal = Decimal('0')
         total_qty = 0
@@ -1509,22 +1515,37 @@ class ProformaInvoiceGenerator(PDFGenerator):
         for item in sales_order.items.all():
             base_price = item.block_type.selling_price
             discount = item.discount_per_block
+            surcharge = sales_order.surcharge_per_block
             net_price = item.agreed_price
             line_total = item.line_total
 
-            items_data.append([
-                item.block_type.name[:20] + '..' if len(item.block_type.name) > 20 else item.block_type.name,
-                str(item.quantity_requested),
-                self._format_currency(base_price),
-                self._format_currency(discount) if discount > 0 else '-',
-                self._format_currency(net_price),
-                self._format_currency(line_total)
-            ])
+            if has_surcharge:
+                items_data.append([
+                    item.block_type.name[:18] + '..' if len(item.block_type.name) > 18 else item.block_type.name,
+                    str(item.quantity_requested),
+                    self._format_currency(base_price),
+                    self._format_currency(discount) if discount > 0 else '-',
+                    self._format_currency(surcharge),
+                    self._format_currency(net_price),
+                    self._format_currency(line_total)
+                ])
+            else:
+                items_data.append([
+                    item.block_type.name[:20] + '..' if len(item.block_type.name) > 20 else item.block_type.name,
+                    str(item.quantity_requested),
+                    self._format_currency(base_price),
+                    self._format_currency(discount) if discount > 0 else '-',
+                    self._format_currency(net_price),
+                    self._format_currency(line_total)
+                ])
 
             subtotal += line_total
             total_qty += item.quantity_requested
 
-        items_table = Table(items_data, colWidths=[60 * mm, 15 * mm, 28 * mm, 25 * mm, 28 * mm, 34 * mm])
+        if has_surcharge:
+            items_table = Table(items_data, colWidths=[50*mm, 12*mm, 26*mm, 22*mm, 22*mm, 26*mm, 32*mm])
+        else:
+            items_table = Table(items_data, colWidths=[60*mm, 15*mm, 28*mm, 25*mm, 28*mm, 34*mm])
 
         style_commands = [
             ('FONTNAME', (0, 0), (-1, -1), self.font_name),

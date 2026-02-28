@@ -702,7 +702,8 @@ class SalesOrderItem(models.Model):
 
     def save(self, *args, **kwargs):
         base = self.block_type.selling_price
-        self.agreed_price = base - self.discount_per_block
+        surcharge = self.order.surcharge_per_block if self.order_id else Decimal('0.00')
+        self.agreed_price = base - self.discount_per_block + surcharge
         super().save(*args, **kwargs)
 
     @property
