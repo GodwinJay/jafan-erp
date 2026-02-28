@@ -1,7 +1,7 @@
 {% extends "admin/base_site.html" %} 
 {% load humanize %} 
 
-{% block title %}Executive Dashboard{% endblock %} 
+{% block title %}Transport Dashboard{% endblock %} 
 
 {% block content %}
 <style>
@@ -12,8 +12,6 @@
     --gold-light: #f5e6c8;
     --success: #28a745;
     --danger: #dc3545;
-    --warning: #ffc107;
-    --info: #17a2b8;
     --bg-gray: #f4f6f9;
     --card-bg: #ffffff;
     --text-main: #2c3e50;
@@ -42,17 +40,6 @@
     overflow: hidden;
   }
 
-  .dashboard-header::before {
-    content: "";
-    position: absolute;
-    top: -50%;
-    right: -10%;
-    width: 300px;
-    height: 300px;
-    background: rgba(212, 175, 55, 0.1);
-    border-radius: 50%;
-  }
-
   .dashboard-header h1 {
     margin: 0 0 10px 0;
     font-size: 32px;
@@ -68,7 +55,7 @@
     opacity: 0.9;
   }
 
-  .period-label {
+  .week-label {
     background: rgba(255, 255, 255, 0.2);
     backdrop-filter: blur(4px);
     padding: 6px 14px;
@@ -127,8 +114,6 @@
   .stat-card.green { border-top: 4px solid var(--success); }
   .stat-card.red { border-top: 4px solid var(--danger); }
   .stat-card.gold { border-top: 4px solid var(--gold); }
-  .stat-card.purple { border-top: 4px solid #6f42c1; }
-  .stat-card.teal { border-top: 4px solid var(--info); }
 
   .stat-card h3 {
     margin: 0 0 10px 0;
@@ -149,19 +134,34 @@
   .stat-card .value.positive { color: var(--success); }
   .stat-card .value.negative { color: var(--danger); }
 
-  .stat-card .subtext {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 8px;
+  /* --- ACCOUNTS LIST --- */
+  .accounts-wrapper {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    margin-bottom: 30px;
   }
 
-  /* --- TWO COLUMN LAYOUT --- */
-  .two-col-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-    gap: 25px;
-    margin-bottom: 40px;
+  .account-pill {
+    background: white;
+    padding: 10px 20px;
+    border-radius: 50px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid #eee;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    transition: all 0.2s;
   }
+
+  .account-pill:hover {
+    border-color: var(--gold);
+    transform: translateY(-2px);
+  }
+
+  .account-pill .bank-name { color: var(--text-muted); }
+  .account-pill .amount { font-weight: 700; color: var(--primary); }
 
   /* --- MODERN TABLE --- */
   .table-card {
@@ -169,31 +169,8 @@
     border-radius: 16px;
     box-shadow: var(--shadow-md);
     overflow: hidden;
+    margin-bottom: 40px;
     border: 1px solid rgba(0, 0, 0, 0.05);
-  }
-
-  .table-card-header {
-    padding: 20px 25px;
-    border-bottom: 1px solid #eee;
-    background: #f8f9fa;
-  }
-
-  .table-card-header h3 {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--primary);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .table-card-header.alert {
-    background: #fff5f5;
-  }
-
-  .table-card-header.alert h3 {
-    color: var(--danger);
   }
 
   table {
@@ -204,8 +181,8 @@
 
   th {
     background: #f8f9fa;
-    padding: 15px 20px;
-    font-size: 11px;
+    padding: 18px 25px;
+    font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
     color: var(--text-muted);
@@ -214,836 +191,223 @@
   }
 
   td {
-    padding: 16px 20px;
+    padding: 20px 25px;
     border-bottom: 1px solid #f0f0f0;
     color: var(--text-main);
-    font-size: 14px;
+    font-size: 15px;
     transition: background 0.2s;
   }
 
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: #fafafa; }
 
+  .truck-name {
+    font-weight: 700;
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .driver-name {
+    display: inline-block;
+    padding: 4px 10px;
+    background: #f0f4f7;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--primary);
+  }
+
   .text-right { text-align: right; }
   .text-center { text-align: center; }
 
-  .amount-negative {
-    color: var(--danger);
-    font-weight: 700;
-  }
-
-  .amount-positive {
-    color: var(--success);
-    font-weight: 700;
-  }
-
-  /* --- ALERT ITEMS --- */
-  .alert-list {
-    padding: 20px;
-  }
-
-  .alert-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
-    border-radius: 10px;
-    margin-bottom: 10px;
-    font-size: 14px;
-  }
-
-  .alert-item:last-child { margin-bottom: 0; }
-
-  .alert-item.critical {
-    background: #fff0f0;
-    border: 1px solid #ffcdd2;
-  }
-
-  .alert-item.warning {
-    background: #fff8e1;
-    border: 1px solid #ffe082;
-  }
-
-  .alert-item .name {
-    font-weight: 600;
-    color: var(--text-main);
-  }
-
-  .alert-item .badge {
-    padding: 4px 12px;
+  .status-badge {
+    display: inline-block;
+    padding: 6px 12px;
     border-radius: 20px;
-    font-size: 12px;
-    font-weight: 700;
-  }
-
-  .alert-item.critical .badge {
-    background: var(--danger);
-    color: white;
-  }
-
-  .alert-item.warning .badge {
-    background: var(--warning);
-    color: #333;
-  }
-
-  .empty-state {
-    padding: 40px;
-    text-align: center;
-    color: var(--text-muted);
-  }
-
-  .empty-state .icon {
-    font-size: 48px;
-    margin-bottom: 15px;
-  }
-
-  /* --- ACTIVITY FEED --- */
-  .activity-feed {
-    padding: 0;
-  }
-
-  .activity-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 18px 25px;
-    border-bottom: 1px solid #f0f0f0;
-    transition: background 0.2s;
-  }
-
-  .activity-item:hover { background: #fafafa; }
-  .activity-item:last-child { border-bottom: none; }
-
-  .activity-info .customer {
-    font-weight: 700;
-    color: var(--text-main);
-    margin-bottom: 4px;
-  }
-
-  .activity-info .details {
     font-size: 13px;
-    color: var(--text-muted);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .activity-info .tag {
-    background: #e3f2fd;
-    color: #1976d2;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 600;
-  }
-
-  .activity-amount {
-    text-align: right;
-  }
-
-  .activity-amount .value {
     font-weight: 700;
-    color: var(--primary);
-    font-size: 15px;
   }
+  .status-badge.profit { background: #e6f4ea; color: var(--success); }
+  .status-badge.loss { background: #fce8e6; color: var(--danger); }
 
-  .activity-amount .date {
-    font-size: 12px;
-    color: var(--text-muted);
-  }
-
-  /* --- TRANSPORT SECTION --- */
-  .transport-section {
-    background: white;
-    border-radius: 16px;
-    box-shadow: var(--shadow-md);
-    overflow: hidden;
-    margin-bottom: 40px;
-    border: 1px solid rgba(0, 0, 0, 0.05);
-  }
-
-  .transport-header {
-    background: linear-gradient(135deg, #1565c0 0%, #0d47a1 100%);
-    color: white;
-    padding: 20px 25px;
-  }
-
-  .transport-header h3 {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .transport-body {
-    padding: 25px;
-  }
-
-  .transport-stats {
+  /* --- QUICK ACTIONS --- */
+  .actions-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 20px;
-    margin-bottom: 25px;
-  }
-
-  .transport-stat {
-    background: #f8f9fa;
-    padding: 20px;
-    border-radius: 12px;
-    text-align: center;
-  }
-
-  .transport-stat .label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    margin-bottom: 8px;
-  }
-
-  .transport-stat .amount {
-    font-size: 24px;
-    font-weight: 800;
-  }
-
-  .transport-stat .hint {
-    font-size: 11px;
-    color: var(--text-muted);
-    margin-top: 5px;
-  }
-
-  /* --- FUEL AUDIT --- */
-  .fuel-audit {
-    border-top: 1px solid #eee;
-    padding-top: 25px;
-  }
-
-  .fuel-audit-title {
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--text-main);
-    margin-bottom: 15px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .fuel-audit-title .tag {
-    background: #e0e0e0;
-    color: #666;
-    padding: 3px 10px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: 600;
-  }
-
-  .fuel-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 15px;
-  }
-
-  .fuel-stat {
-    background: white;
-    border: 1px solid #e0e0e0;
-    border-radius: 10px;
-    padding: 15px;
-    text-align: center;
-  }
-
-  .fuel-stat.variance-positive {
-    background: #fff0f0;
-    border-color: #ffcdd2;
-  }
-
-  .fuel-stat.variance-negative {
-    background: #e8f5e9;
-    border-color: #c8e6c9;
-  }
-
-  .fuel-stat.outside {
-    background: #fffde7;
-    border-color: #fff59d;
-  }
-
-  .fuel-stat .number {
-    font-size: 22px;
-    font-weight: 800;
-    margin-bottom: 5px;
-  }
-
-  .fuel-stat .label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    color: var(--text-muted);
-  }
-
-  .fuel-note {
-    margin-top: 15px;
-    font-size: 12px;
-    color: var(--text-muted);
-    font-style: italic;
-  }
-
-  .fuel-note strong {
-    color: var(--danger);
-  }
-
-  /* --- EXPORT SECTION --- */
-  .export-section {
-    background: white;
-    border-radius: 16px;
-    box-shadow: var(--shadow-md);
-    overflow: hidden;
-    border: 1px solid rgba(0, 0, 0, 0.05);
-  }
-
-  .export-header {
-    padding: 20px 25px;
-    border-bottom: 1px solid #eee;
-    background: #f8f9fa;
-  }
-
-  .export-header h3 {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--primary);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .export-body {
-    padding: 25px;
-  }
-
-  .date-filter {
-    background: #f8f9fa;
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 25px;
-    border: 1px solid #eee;
-  }
-
-  .date-filter-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 15px;
-    align-items: flex-end;
-  }
-
-  .date-filter-group label {
-    display: block;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-muted);
-    margin-bottom: 6px;
-    text-transform: uppercase;
-  }
-
-  .date-filter-group input[type="date"] {
-    padding: 10px 14px;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    font-size: 14px;
-    color: var(--text-main);
-    background: white;
-  }
-
-  .date-filter-group input[type="date"]:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(37, 68, 81, 0.1);
-  }
-
-  .btn {
-    padding: 10px 20px;
-    border: none;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .btn-primary {
-    background: var(--success);
-    color: white;
-  }
-
-  .btn-primary:hover {
-    background: #218838;
-    transform: translateY(-1px);
-  }
-
-  .btn-secondary {
-    background: #e0e0e0;
-    color: var(--text-main);
-  }
-
-  .btn-secondary:hover {
-    background: #d0d0d0;
-  }
-
-  .date-status {
-    font-size: 13px;
-    color: var(--success);
-    font-weight: 600;
-    margin-left: 10px;
-  }
-
-  .date-hint {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 10px;
-  }
-
-  /* --- EXPORT CARDS --- */
-  .export-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 20px;
   }
 
-  .export-card {
-    border: 1px solid #eee;
-    border-radius: 12px;
-    padding: 20px;
-    transition: all 0.2s;
-  }
-
-  .export-card:hover {
-    border-color: var(--gold);
-    box-shadow: var(--shadow-md);
-    transform: translateY(-2px);
-  }
-
-  .export-card-header {
+  .action-btn {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-bottom: 10px;
-  }
-
-  .export-card-header .icon {
-    font-size: 28px;
-  }
-
-  .export-card-header h4 {
-    margin: 0;
-    font-size: 15px;
-    font-weight: 700;
-    color: var(--text-main);
-  }
-
-  .export-card p {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin: 0 0 15px 0;
-  }
-
-  .export-btns {
-    display: flex;
+    justify-content: center;
     gap: 10px;
-  }
-
-  .export-btn {
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
+    padding: 18px;
+    border-radius: 12px;
     text-decoration: none;
-    transition: all 0.2s;
+    font-weight: 600;
+    font-size: 15px;
+    transition: transform 0.2s, filter 0.2s;
+    color: white !important;
+    box-shadow: var(--shadow-md);
   }
 
-  .export-btn.csv {
-    background: #e8f5e9;
-    color: var(--success);
+  .action-btn:hover {
+    transform: translateY(-3px);
+    filter: brightness(110%);
   }
 
-  .export-btn.csv:hover {
-    background: var(--success);
-    color: white;
-  }
-
-  .export-btn.excel {
-    background: var(--success);
-    color: white;
-  }
-
-  .export-btn.excel:hover {
-    background: #1e7e34;
-  }
-
-  .export-btn.purple {
-    background: #6f42c1;
-    color: white;
-  }
-
-  .export-btn.purple:hover {
-    background: #5a32a3;
-  }
-
-  .export-btn.yellow {
-    background: var(--warning);
-    color: #333;
-  }
-
-  .export-btn.yellow:hover {
-    background: #e0a800;
-  }
-
-  /* --- RESPONSIVE --- */
-  @media (max-width: 768px) {
-    .dashboard-container { padding: 15px; }
-    .stats-grid { grid-template-columns: 1fr; }
-    .two-col-grid { grid-template-columns: 1fr; }
-    .transport-stats { grid-template-columns: 1fr; }
-    .fuel-grid { grid-template-columns: repeat(2, 1fr); }
-    .export-grid { grid-template-columns: 1fr; }
-  }
+  .btn-primary { background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); }
+  .btn-gold { background: linear-gradient(135deg, var(--gold) 0%, #b89628 100%); }
+  .btn-green { background: linear-gradient(135deg, var(--success) 0%, #1e7e34 100%); }
 </style>
 
 <div class="dashboard-container">
-  <!-- HERO HEADER -->
   <div class="dashboard-header">
-    <h1>📊 Executive Dashboard</h1>
+    <h1>🚛 Jafan Transport Dashboard</h1>
     <div class="header-meta">
-      <span>Period: <strong>{{ start_date|date:"d M Y" }} — {{ end_date|date:"d M Y" }}</strong></span>
-      <span class="period-label">{{ stats.month_name }} {{ stats.year }}</span>
+      <span>Week starting: <strong>{{ week_start|date:"l, d M Y" }}</strong></span>
+      <span class="week-label">Current Week</span>
     </div>
   </div>
 
-  <!-- PERFORMANCE OVERVIEW -->
-  <h2 class="section-title">💰 Performance Overview</h2>
+  <h2 class="section-title">💰 Live Balances</h2>
+  <div class="accounts-wrapper">
+    {% for acc in transport_accounts %}
+    <div class="account-pill">
+      <span class="bank-name">{{ acc.bank_name }}</span>
+      <span class="amount">₦{{ acc.current_balance|intcomma }}</span>
+    </div>
+    {% empty %}
+    <p style="color: #999; font-style: italic">No transport accounts configured.</p>
+    {% endfor %}
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card blue">
+      <h3>Total Transport Balance</h3>
+      <div class="value">₦{{ total_transport_balance|intcomma }}</div>
+    </div>
+    <div class="stat-card gold">
+      <h3>Receivable from Block Industry</h3>
+      <div class="value">₦{{ receivable_from_block|intcomma }}</div>
+    </div>
+    <div class="stat-card green">
+      <h3>Total Weekly Income</h3>
+      <div class="value positive">₦{{ total_income|intcomma }}</div>
+    </div>
+    <div class="stat-card red">
+      <h3>Total Weekly Costs</h3>
+      <div class="value negative">₦{{ total_costs|intcomma }}</div>
+    </div>
+  </div>
+
+  <h2 class="section-title">📊 Weekly Breakdown</h2>
   <div class="stats-grid">
     <div class="stat-card green">
-      <h3>Total Revenue</h3>
-      <div class="value positive">₦{{ stats.revenue|intcomma }}</div>
-      <div class="subtext">Block Sales</div>
+      <h3>Block Delivery Income</h3>
+      <div class="value">₦{{ week_logistics_income|intcomma }}</div>
     </div>
-
+    <div class="stat-card green">
+      <h3>External Jobs Income</h3>
+      <div class="value">₦{{ week_external_income|intcomma }}</div>
+    </div>
     <div class="stat-card red">
-      <h3>Total Expenses</h3>
-      <div class="value negative">₦{{ stats.expenses|intcomma }}</div>
-      <div class="subtext">COGS + Operating</div>
+      <h3>Fuel Costs</h3>
+      <div class="value">₦{{ week_fuel|intcomma }}</div>
+    </div>
+    <div class="stat-card red">
+      <h3>Maintenance & Repairs</h3>
+      <div class="value">₦{{ week_maintenance|intcomma }}</div>
+    </div>
+    <div class="stat-card {% if net_profit >= 0 %}green{% else %}red{% endif %}" style="grid-column: span 1; border-top: 4px solid {% if net_profit >= 0 %}var(--success){% else %}var(--danger){% endif %};">
+      <h3>★ Net Profit (Week)</h3>
+      <div class="value {% if net_profit >= 0 %}positive{% else %}negative{% endif %}">
+        ₦{{ net_profit|intcomma }}
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title">⛽ Diesel Efficiency Audit (This Week)</h2>
+  <div class="stats-grid">
+    <div class="stat-card">
+      <h3>Actual Dispensed</h3>
+      <div class="value">{{ fuel_audit.actual_liters|floatformat:1 }} L</div>
     </div>
 
-    <div class="stat-card {% if stats.net_profit >= 0 %}blue{% else %}red{% endif %}">
-      <h3>Net Profit</h3>
-      <div class="value {% if stats.net_profit >= 0 %}positive{% else %}negative{% endif %}">
-        ₦{{ stats.net_profit|intcomma }}
+    <div class="stat-card">
+      <h3>Expected (Benchmark)</h3>
+      <div class="value">{{ fuel_audit.expected_liters|floatformat:1 }} L</div>
+    </div>
+
+    <div class="stat-card {% if fuel_audit.variance > 0 %}red{% else %}green{% endif %}">
+      <h3>Variance</h3>
+      <div class="value {% if fuel_audit.variance > 0 %}negative{% else %}positive{% endif %}">
+        {% if fuel_audit.variance > 0 %}+{% endif %}{{ fuel_audit.variance|floatformat:1 }} L
       </div>
-      <div class="subtext">{{ net_margin }}% Margin</div>
     </div>
 
     <div class="stat-card gold">
-      <h3>Blocks Produced</h3>
-      <div class="value">{{ stats.production_count|intcomma }}</div>
-      <div class="subtext">This Period</div>
+      <h3>Outside Town Trips</h3>
+      <div class="value">{{ fuel_audit.outside_trips }}</div>
     </div>
   </div>
 
-  <!-- FINANCIAL POSITION -->
-  <h2 class="section-title">🏦 Financial Position</h2>
-  <div class="stats-grid">
-    <div class="stat-card teal">
-      <h3>Cash Position</h3>
-      <div class="value">₦{{ cash_position|intcomma }}</div>
-      <div class="subtext">Block Industry Accounts</div>
-    </div>
-
-    <div class="stat-card purple">
-      <h3>Receivables</h3>
-      <div class="value">₦{{ receivables|intcomma }}</div>
-      <div class="subtext">Customers Owe Us</div>
-    </div>
-
-    <div class="stat-card red">
-      <h3>Payables</h3>
-      <div class="value negative">₦{{ payables|intcomma }}</div>
-      <div class="subtext">We Owe Vendors</div>
-    </div>
+  <h2 class="section-title">🚚 Truck Performance</h2>
+  <div class="table-card">
+    <table>
+      <thead>
+        <tr>
+          <th>Truck Details</th>
+          <th class="text-right">Logistics</th>
+          <th class="text-right">External</th>
+          <th class="text-right">Expenses</th>
+          <th class="text-right">Fuel</th>
+          <th class="text-right">Maint.</th>
+          <th class="text-right">Net Profit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for truck in truck_breakdown %}
+        <tr>
+          <td>
+            <div class="truck-name">{{ truck.name }}</div>
+            <span class="driver-name">👤 {{ truck.driver }}</span>
+          </td>
+          <td class="text-right" style="color: var(--text-muted)">₦{{ truck.logistics_income|intcomma }}</td>
+          <td class="text-right" style="color: var(--text-muted)">₦{{ truck.external_income|intcomma }}</td>
+          <td class="text-right" style="color: #e74c3c">-₦{{ truck.expenses|intcomma }}</td>
+          <td class="text-right" style="color: #e74c3c">-₦{{ truck.fuel|intcomma }}</td>
+          <td class="text-right" style="color: #e74c3c">-₦{{ truck.maintenance|intcomma }}</td>
+          <td class="text-right">
+            <span class="status-badge {% if truck.net_profit >= 0 %}profit{% else %}loss{% endif %}">
+              ₦{{ truck.net_profit|intcomma }}
+            </span>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" class="text-center" style="padding: 40px; color: #999">
+            No active trucks found for this period.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 
-  <!-- TWO COLUMN: DEBTORS & ALERTS -->
-  <div class="two-col-grid">
-    <!-- TOP DEBTORS -->
-    <div class="table-card">
-      <div class="table-card-header">
-        <h3>📉 Top Debtors (They Owe Us)</h3>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Customer</th>
-            <th class="text-right">Balance</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for debtor in debtors %}
-          <tr>
-            <td>{{ debtor.name }}</td>
-            <td class="text-right amount-negative">₦{{ debtor.account_balance|intcomma }}</td>
-          </tr>
-          {% empty %}
-          <tr>
-            <td colspan="2" class="text-center" style="padding: 30px; color: var(--text-muted);">
-              ✅ No debtors found. Good job!
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    <!-- INVENTORY ALERTS -->
-    <div class="table-card">
-      <div class="table-card-header alert">
-        <h3>⚠️ Inventory Alerts</h3>
-      </div>
-      <div class="alert-list">
-        {% if not alerts.materials and not alerts.blocks %}
-        <div class="empty-state">
-          <div class="icon">✅</div>
-          <p>All stock levels are healthy!</p>
-        </div>
-        {% else %}
-          {% for mat in alerts.materials %}
-          <div class="alert-item critical">
-            <span class="name">{{ mat.get_name_display }}</span>
-            <span class="badge">{{ mat.current_stock }} Left</span>
-          </div>
-          {% endfor %}
-          {% for block in alerts.blocks %}
-          <div class="alert-item warning">
-            <span class="name">{{ block.name }}</span>
-            <span class="badge">{{ block.current_stock }} Left</span>
-          </div>
-          {% endfor %}
-        {% endif %}
-      </div>
-    </div>
-  </div>
-
-  <!-- RECENT SUPPLIES -->
-  <h2 class="section-title">🚚 Recent Supplies</h2>
-  <div class="table-card" style="margin-bottom: 40px;">
-    <div class="activity-feed">
-      {% for log in activity %}
-      <div class="activity-item">
-        <div class="activity-info">
-          <div class="customer">{{ log.customer.name }}</div>
-          <div class="details">
-            {{ log.quantity_delivered }} × {{ log.block_type.name }}
-            <span class="tag">{{ log.get_delivery_type_display }}</span>
-          </div>
-        </div>
-        <div class="activity-amount">
-          <div class="value">₦{{ log.total_value|intcomma }}</div>
-          <div class="date">{{ log.date|date:"d M Y" }}</div>
-        </div>
-      </div>
-      {% empty %}
-      <div class="empty-state">
-        <div class="icon">📦</div>
-        <p>No recent activity</p>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-
-  <!-- TRANSPORT SECTION -->
-  <div class="transport-section">
-    <div class="transport-header">
-      <h3>🚛 Jafan Transport Analysis (Profit Center)</h3>
-    </div>
-    <div class="transport-body">
-      <div class="transport-stats">
-        <div class="transport-stat">
-          <div class="label">Transport Revenue</div>
-          <div class="amount" style="color: var(--success);">₦{{ transport.revenue|intcomma }}</div>
-          <div class="hint">Delivery Fees + Surcharges</div>
-        </div>
-        <div class="transport-stat">
-          <div class="label">Fuel & Maint. Costs</div>
-          <div class="amount" style="color: var(--danger);">₦{{ transport.total_expense|intcomma }}</div>
-          <div class="hint">Diesel: ₦{{ transport.fuel_cost|intcomma }}</div>
-        </div>
-        <div class="transport-stat">
-          <div class="label">Net Profit</div>
-          <div class="amount" style="color: {% if transport.net_profit >= 0 %}var(--success){% else %}var(--danger){% endif %};">
-            ₦{{ transport.net_profit|intcomma }}
-          </div>
-          <div class="hint">Revenue - Expenses</div>
-        </div>
-      </div>
-
-      <div class="fuel-audit">
-        <div class="fuel-audit-title">
-          ⛽ Diesel Efficiency Audit
-          <span class="tag">Formula: Expected vs Actual</span>
-        </div>
-        <div class="fuel-grid">
-          <div class="fuel-stat">
-            <div class="number">{{ transport.fuel_audit.actual_liters|floatformat:1 }} L</div>
-            <div class="label">Actual Dispensed</div>
-          </div>
-          <div class="fuel-stat">
-            <div class="number">{{ transport.fuel_audit.expected_liters|floatformat:1 }} L</div>
-            <div class="label">Expected (Benchmark)</div>
-          </div>
-          <div class="fuel-stat {% if transport.fuel_audit.variance > 0 %}variance-positive{% else %}variance-negative{% endif %}">
-            <div class="number" style="color: {% if transport.fuel_audit.variance > 0 %}var(--danger){% else %}var(--success){% endif %};">
-              {% if transport.fuel_audit.variance > 0 %}+{% endif %}{{ transport.fuel_audit.variance|floatformat:1 }} L
-            </div>
-            <div class="label">Variance</div>
-          </div>
-          <div class="fuel-stat outside">
-            <div class="number" style="color: #f57c00;">{{ transport.fuel_audit.outside_trips }}</div>
-            <div class="label">Outside Town Trips</div>
-          </div>
-        </div>
-        <p class="fuel-note">
-          * <strong>Positive Variance</strong> means drivers used MORE fuel than expected. Check "Outside Town Trips" to see if it is justified.
-        </p>
-      </div>
-    </div>
-  </div>
-
-  <!-- EXPORT SECTION -->
-  <div class="export-section">
-    <div class="export-header">
-      <h3>📊 Export Reports</h3>
-    </div>
-    <div class="export-body">
-      <div class="date-filter">
-        <div class="date-filter-row">
-          <div class="date-filter-group">
-            <label>Start Date</label>
-            <input type="date" id="start_date" name="start_date">
-          </div>
-          <div class="date-filter-group">
-            <label>End Date</label>
-            <input type="date" id="end_date" name="end_date">
-          </div>
-          <button type="button" onclick="applyDateFilters()" class="btn btn-primary">Apply Dates</button>
-          <button type="button" onclick="clearDateFilters()" class="btn btn-secondary">Clear</button>
-          <span id="date_status" class="date-status"></span>
-        </div>
-        <p class="date-hint">Leave empty to export current month's data.</p>
-      </div>
-
-      <div class="export-grid">
-        <div class="export-card">
-          <div class="export-card-header">
-            <span class="icon">💰</span>
-            <h4>Sales Report</h4>
-          </div>
-          <p>All supplies and deliveries</p>
-          <div class="export-btns">
-            <a href="/erp/export/sales/csv/" class="export-link export-btn csv">CSV</a>
-            <a href="/erp/export/sales/excel/" class="export-link export-btn excel">Excel</a>
-          </div>
-        </div>
-
-        <div class="export-card">
-          <div class="export-card-header">
-            <span class="icon">📉</span>
-            <h4>Expenses Report</h4>
-          </div>
-          <p>All costs including auto-synced procurement</p>
-          <div class="export-btns">
-            <a href="/erp/export/expenses/csv/" class="export-link export-btn csv">CSV</a>
-            <a href="/erp/export/expenses/excel/" class="export-link export-btn excel">Excel</a>
-          </div>
-        </div>
-
-        <div class="export-card">
-          <div class="export-card-header">
-            <span class="icon">🏭</span>
-            <h4>Production Report</h4>
-          </div>
-          <p>Blocks produced by team & machine</p>
-          <div class="export-btns">
-            <a href="/erp/export/production/csv/" class="export-link export-btn csv">CSV</a>
-            <a href="/erp/export/production/excel/" class="export-link export-btn excel">Excel</a>
-          </div>
-        </div>
-
-        <div class="export-card">
-          <div class="export-card-header">
-            <span class="icon">👥</span>
-            <h4>Customer Ledger</h4>
-          </div>
-          <p>All customers with transaction history</p>
-          <div class="export-btns">
-            <a href="/erp/export/customers/" class="export-link export-btn purple">Excel</a>
-          </div>
-        </div>
-
-        <div class="export-card">
-          <div class="export-card-header">
-            <span class="icon">📦</span>
-            <h4>Inventory Status</h4>
-          </div>
-          <p>Current stock levels (Materials & Blocks)</p>
-          <div class="export-btns">
-            <a href="/erp/export/inventory/" class="export-btn yellow">Excel</a>
-          </div>
-        </div>
-      </div>
-    </div>
+  <h2 class="section-title">⚡ Quick Actions</h2>
+  <div class="actions-grid">
+    <a href="{% url 'admin:erp_transportrevenue_add' %}" class="action-btn btn-primary">
+      <span>+ Add Revenue</span>
+    </a>
+    <a href="{% url 'admin:erp_accounttransfer_add' %}" class="action-btn btn-gold">
+      <span>+ Record Settlement</span>
+    </a>
+    <a href="{% url 'admin:erp_fuellog_add' %}" class="action-btn btn-green">
+      <span>+ Add Fuel Log</span>
+    </a>
   </div>
 </div>
-
-<script>
-  function applyDateFilters() {
-    const startDate = document.getElementById("start_date").value;
-    const endDate = document.getElementById("end_date").value;
-
-    if (!startDate || !endDate) {
-      alert("Please select both start and end dates.");
-      return;
-    }
-
-    if (startDate > endDate) {
-      alert("Start date cannot be after end date.");
-      return;
-    }
-
-    document.querySelectorAll("a.export-link").forEach((link) => {
-      const url = new URL(link.href, window.location.origin);
-      url.searchParams.set("start_date", startDate);
-      url.searchParams.set("end_date", endDate);
-      link.href = url.toString();
-    });
-
-    const statusEl = document.getElementById("date_status");
-    statusEl.textContent = `✓ Dates applied: ${startDate} to ${endDate}`;
-  }
-
-  function clearDateFilters() {
-    document.getElementById("start_date").value = "";
-    document.getElementById("end_date").value = "";
-
-    document.querySelectorAll("a.export-link").forEach((link) => {
-      const url = new URL(link.href, window.location.origin);
-      url.searchParams.delete("start_date");
-      url.searchParams.delete("end_date");
-      link.href = url.toString();
-    });
-
-    const statusEl = document.getElementById("date_status");
-    statusEl.textContent = "Dates cleared. Using current month.";
-    
-    setTimeout(() => {
-      statusEl.textContent = "";
-    }, 3000);
-  }
-</script>
 {% endblock %}

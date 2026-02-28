@@ -1,304 +1,999 @@
 {% extends "admin/base_site.html" %} 
 {% load humanize %} 
 
+{% block title %}Executive Dashboard{% endblock %} 
+
 {% block content %}
-<div class="px-4 pb-8">
-  <div class="mb-8 flex items-center justify-between">
-    <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100">
-      Performance Overview
-      <span class="text-gray-400 text-lg font-normal">| {{ stats.month_name }} {{ stats.year }}</span>
-    </h1>
+<style>
+  :root {
+    --primary: #254451;
+    --primary-dark: #1a3a47;
+    --gold: #d4af37;
+    --gold-light: #f5e6c8;
+    --success: #28a745;
+    --danger: #dc3545;
+    --warning: #ffc107;
+    --info: #17a2b8;
+    --bg-gray: #f4f6f9;
+    --card-bg: #ffffff;
+    --text-main: #2c3e50;
+    --text-muted: #6c757d;
+    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  }
+
+  .dashboard-container {
+    padding: 30px;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: var(--bg-gray);
+    min-height: 100vh;
+  }
+
+  /* --- HERO HEADER --- */
+  .dashboard-header {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+    color: white;
+    padding: 30px;
+    border-radius: 16px;
+    margin-bottom: 35px;
+    box-shadow: var(--shadow-lg);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .dashboard-header::before {
+    content: "";
+    position: absolute;
+    top: -50%;
+    right: -10%;
+    width: 300px;
+    height: 300px;
+    background: rgba(212, 175, 55, 0.1);
+    border-radius: 50%;
+  }
+
+  .dashboard-header h1 {
+    margin: 0 0 10px 0;
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    font-size: 15px;
+    opacity: 0.9;
+  }
+
+  .period-label {
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(4px);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+
+  /* --- SECTION TITLES --- */
+  .section-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--primary);
+    margin: 0 0 20px 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: #e0e0e0;
+    margin-left: 15px;
+  }
+
+  /* --- STATS GRID --- */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 25px;
+    margin-bottom: 40px;
+  }
+
+  .stat-card {
+    background: var(--card-bg);
+    border-radius: 16px;
+    padding: 25px;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    border: 1px solid rgba(0, 0, 0, 0.03);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .stat-card:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* Color Accents for Cards */
+  .stat-card.blue { border-top: 4px solid #007bff; }
+  .stat-card.green { border-top: 4px solid var(--success); }
+  .stat-card.red { border-top: 4px solid var(--danger); }
+  .stat-card.gold { border-top: 4px solid var(--gold); }
+  .stat-card.purple { border-top: 4px solid #6f42c1; }
+  .stat-card.teal { border-top: 4px solid var(--info); }
+
+  .stat-card h3 {
+    margin: 0 0 10px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+
+  .stat-card .value {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--text-main);
+    letter-spacing: -1px;
+  }
+
+  .stat-card .value.positive { color: var(--success); }
+  .stat-card .value.negative { color: var(--danger); }
+
+  .stat-card .subtext {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 8px;
+  }
+
+  /* --- TWO COLUMN LAYOUT --- */
+  .two-col-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 25px;
+    margin-bottom: 40px;
+  }
+
+  /* --- MODERN TABLE --- */
+  .table-card {
+    background: white;
+    border-radius: 16px;
+    box-shadow: var(--shadow-md);
+    overflow: hidden;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+  }
+
+  .table-card-header {
+    padding: 20px 25px;
+    border-bottom: 1px solid #eee;
+    background: #f8f9fa;
+  }
+
+  .table-card-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .table-card-header.alert {
+    background: #fff5f5;
+  }
+
+  .table-card-header.alert h3 {
+    color: var(--danger);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  th {
+    background: #f8f9fa;
+    padding: 15px 20px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid #eee;
+  }
+
+  td {
+    padding: 16px 20px;
+    border-bottom: 1px solid #f0f0f0;
+    color: var(--text-main);
+    font-size: 14px;
+    transition: background 0.2s;
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafafa; }
+
+  .text-right { text-align: right; }
+  .text-center { text-align: center; }
+
+  .amount-negative {
+    color: var(--danger);
+    font-weight: 700;
+  }
+
+  .amount-positive {
+    color: var(--success);
+    font-weight: 700;
+  }
+
+  /* --- ALERT ITEMS --- */
+  .alert-list {
+    padding: 20px;
+  }
+
+  .alert-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    font-size: 14px;
+  }
+
+  .alert-item:last-child { margin-bottom: 0; }
+
+  .alert-item.critical {
+    background: #fff0f0;
+    border: 1px solid #ffcdd2;
+  }
+
+  .alert-item.warning {
+    background: #fff8e1;
+    border: 1px solid #ffe082;
+  }
+
+  .alert-item .name {
+    font-weight: 600;
+    color: var(--text-main);
+  }
+
+  .alert-item .badge {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .alert-item.critical .badge {
+    background: var(--danger);
+    color: white;
+  }
+
+  .alert-item.warning .badge {
+    background: var(--warning);
+    color: #333;
+  }
+
+  .empty-state {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  .empty-state .icon {
+    font-size: 48px;
+    margin-bottom: 15px;
+  }
+
+  /* --- ACTIVITY FEED --- */
+  .activity-feed {
+    padding: 0;
+  }
+
+  .activity-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 25px;
+    border-bottom: 1px solid #f0f0f0;
+    transition: background 0.2s;
+  }
+
+  .activity-item:hover { background: #fafafa; }
+  .activity-item:last-child { border-bottom: none; }
+
+  .activity-info .customer {
+    font-weight: 700;
+    color: var(--text-main);
+    margin-bottom: 4px;
+  }
+
+  .activity-info .details {
+    font-size: 13px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .activity-info .tag {
+    background: #e3f2fd;
+    color: #1976d2;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .activity-amount {
+    text-align: right;
+  }
+
+  .activity-amount .value {
+    font-weight: 700;
+    color: var(--primary);
+    font-size: 15px;
+  }
+
+  .activity-amount .date {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* --- TRANSPORT SECTION --- */
+  .transport-section {
+    background: white;
+    border-radius: 16px;
+    box-shadow: var(--shadow-md);
+    overflow: hidden;
+    margin-bottom: 40px;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+  }
+
+  .transport-header {
+    background: linear-gradient(135deg, #1565c0 0%, #0d47a1 100%);
+    color: white;
+    padding: 20px 25px;
+  }
+
+  .transport-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .transport-body {
+    padding: 25px;
+  }
+
+  .transport-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin-bottom: 25px;
+  }
+
+  .transport-stat {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 12px;
+    text-align: center;
+  }
+
+  .transport-stat .label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .transport-stat .amount {
+    font-size: 24px;
+    font-weight: 800;
+  }
+
+  .transport-stat .hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 5px;
+  }
+
+  /* --- FUEL AUDIT --- */
+  .fuel-audit {
+    border-top: 1px solid #eee;
+    padding-top: 25px;
+  }
+
+  .fuel-audit-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .fuel-audit-title .tag {
+    background: #e0e0e0;
+    color: #666;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .fuel-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 15px;
+  }
+
+  .fuel-stat {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    padding: 15px;
+    text-align: center;
+  }
+
+  .fuel-stat.variance-positive {
+    background: #fff0f0;
+    border-color: #ffcdd2;
+  }
+
+  .fuel-stat.variance-negative {
+    background: #e8f5e9;
+    border-color: #c8e6c9;
+  }
+
+  .fuel-stat.outside {
+    background: #fffde7;
+    border-color: #fff59d;
+  }
+
+  .fuel-stat .number {
+    font-size: 22px;
+    font-weight: 800;
+    margin-bottom: 5px;
+  }
+
+  .fuel-stat .label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .fuel-note {
+    margin-top: 15px;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .fuel-note strong {
+    color: var(--danger);
+  }
+
+  /* --- EXPORT SECTION --- */
+  .export-section {
+    background: white;
+    border-radius: 16px;
+    box-shadow: var(--shadow-md);
+    overflow: hidden;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+  }
+
+  .export-header {
+    padding: 20px 25px;
+    border-bottom: 1px solid #eee;
+    background: #f8f9fa;
+  }
+
+  .export-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .export-body {
+    padding: 25px;
+  }
+
+  .date-filter {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 25px;
+    border: 1px solid #eee;
+  }
+
+  .date-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    align-items: flex-end;
+  }
+
+  .date-filter-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+
+  .date-filter-group input[type="date"] {
+    padding: 10px 14px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+    color: var(--text-main);
+    background: white;
+  }
+
+  .date-filter-group input[type="date"]:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 68, 81, 0.1);
+  }
+
+  .btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: var(--success);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: #218838;
+    transform: translateY(-1px);
+  }
+
+  .btn-secondary {
+    background: #e0e0e0;
+    color: var(--text-main);
+  }
+
+  .btn-secondary:hover {
+    background: #d0d0d0;
+  }
+
+  .date-status {
+    font-size: 13px;
+    color: var(--success);
+    font-weight: 600;
+    margin-left: 10px;
+  }
+
+  .date-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 10px;
+  }
+
+  /* --- EXPORT CARDS --- */
+  .export-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+  }
+
+  .export-card {
+    border: 1px solid #eee;
+    border-radius: 12px;
+    padding: 20px;
+    transition: all 0.2s;
+  }
+
+  .export-card:hover {
+    border-color: var(--gold);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+  }
+
+  .export-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .export-card-header .icon {
+    font-size: 28px;
+  }
+
+  .export-card-header h4 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-main);
+  }
+
+  .export-card p {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0 0 15px 0;
+  }
+
+  .export-btns {
+    display: flex;
+    gap: 10px;
+  }
+
+  .export-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+
+  .export-btn.csv {
+    background: #e8f5e9;
+    color: var(--success);
+  }
+
+  .export-btn.csv:hover {
+    background: var(--success);
+    color: white;
+  }
+
+  .export-btn.excel {
+    background: var(--success);
+    color: white;
+  }
+
+  .export-btn.excel:hover {
+    background: #1e7e34;
+  }
+
+  .export-btn.purple {
+    background: #6f42c1;
+    color: white;
+  }
+
+  .export-btn.purple:hover {
+    background: #5a32a3;
+  }
+
+  .export-btn.yellow {
+    background: var(--warning);
+    color: #333;
+  }
+
+  .export-btn.yellow:hover {
+    background: #e0a800;
+  }
+
+  /* --- RESPONSIVE --- */
+  @media (max-width: 768px) {
+    .dashboard-container { padding: 15px; }
+    .stats-grid { grid-template-columns: 1fr; }
+    .two-col-grid { grid-template-columns: 1fr; }
+    .transport-stats { grid-template-columns: 1fr; }
+    .fuel-grid { grid-template-columns: repeat(2, 1fr); }
+    .export-grid { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="dashboard-container">
+  <!-- HERO HEADER -->
+  <div class="dashboard-header">
+    <h1>📊 Executive Dashboard</h1>
+    <div class="header-meta">
+      <span>Period: <strong>{{ start_date|date:"d M Y" }} — {{ end_date|date:"d M Y" }}</strong></span>
+      <span class="period-label">{{ stats.month_name }} {{ stats.year }}</span>
+    </div>
   </div>
 
-  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-    <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 border-green-500">
-      <div class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold">
-        Total Revenue
-      </div>
-      <div class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">
-        ₦{{ stats.revenue|intcomma }}
-      </div>
+  <!-- PERFORMANCE OVERVIEW -->
+  <h2 class="section-title">💰 Performance Overview</h2>
+  <div class="stats-grid">
+    <div class="stat-card green">
+      <h3>Total Revenue</h3>
+      <div class="value positive">₦{{ stats.revenue|intcomma }}</div>
+      <div class="subtext">Block Sales</div>
     </div>
 
-    <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 border-red-500">
-      <div class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold">
-        Total Expenses
-      </div>
-      <div class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">
-        ₦{{ stats.expenses|intcomma }}
-      </div>
+    <div class="stat-card red">
+      <h3>Total Expenses</h3>
+      <div class="value negative">₦{{ stats.expenses|intcomma }}</div>
+      <div class="subtext">COGS + Operating</div>
     </div>
 
-    <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 {% if stats.net_profit >= 0 %}border-blue-600{% else %}border-red-500{% endif %}">
-      <div class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold">
-        Net Profit
-      </div>
-      <div class="mt-2 text-2xl font-bold {% if stats.net_profit >= 0 %}text-blue-600{% else %}text-red-500{% endif %}">
+    <div class="stat-card {% if stats.net_profit >= 0 %}blue{% else %}red{% endif %}">
+      <h3>Net Profit</h3>
+      <div class="value {% if stats.net_profit >= 0 %}positive{% else %}negative{% endif %}">
         ₦{{ stats.net_profit|intcomma }}
       </div>
+      <div class="subtext">{{ net_margin }}% Margin</div>
     </div>
 
-    <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border-l-4 border-yellow-500">
-      <div class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-semibold">
-        Blocks Produced
-      </div>
-      <div class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">
-        {{ stats.production_count|intcomma }}
-      </div>
+    <div class="stat-card gold">
+      <h3>Blocks Produced</h3>
+      <div class="value">{{ stats.production_count|intcomma }}</div>
+      <div class="subtext">This Period</div>
     </div>
   </div>
 
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-    
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700">
-      <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-        <h3 class="font-bold text-gray-700 dark:text-gray-200">📉 Top Debtors (They Owe Us)</h3>
-      </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm text-left">
-          <thead class="text-xs text-gray-500 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-300">
-            <tr>
-              <th class="px-6 py-3">Customer</th>
-              <th class="px-6 py-3 text-right">Balance</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
-            {% for debtor in debtors %}
-            <tr class="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
-              <td class="px-6 py-4 font-medium text-gray-900 dark:text-white">
-                {{ debtor.name }}
-              </td>
-              <td class="px-6 py-4 text-right font-bold text-red-600">
-                ₦{{ debtor.account_balance|intcomma }}
-              </td>
-            </tr>
-            {% empty %}
-            <tr>
-              <td colspan="2" class="px-6 py-4 text-center text-gray-500">
-                No debtors found. Good job!
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+  <!-- FINANCIAL POSITION -->
+  <h2 class="section-title">🏦 Financial Position</h2>
+  <div class="stats-grid">
+    <div class="stat-card teal">
+      <h3>Cash Position</h3>
+      <div class="value">₦{{ cash_position|intcomma }}</div>
+      <div class="subtext">Block Industry Accounts</div>
     </div>
 
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700">
-      <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-red-50 dark:bg-red-900/20">
-        <h3 class="font-bold text-red-700 dark:text-red-400">⚠️ Inventory Alerts</h3>
+    <div class="stat-card purple">
+      <h3>Receivables</h3>
+      <div class="value">₦{{ receivables|intcomma }}</div>
+      <div class="subtext">Customers Owe Us</div>
+    </div>
+
+    <div class="stat-card red">
+      <h3>Payables</h3>
+      <div class="value negative">₦{{ payables|intcomma }}</div>
+      <div class="subtext">We Owe Vendors</div>
+    </div>
+  </div>
+
+  <!-- TWO COLUMN: DEBTORS & ALERTS -->
+  <div class="two-col-grid">
+    <!-- TOP DEBTORS -->
+    <div class="table-card">
+      <div class="table-card-header">
+        <h3>📉 Top Debtors (They Owe Us)</h3>
       </div>
-      <div class="p-6">
+      <table>
+        <thead>
+          <tr>
+            <th>Customer</th>
+            <th class="text-right">Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for debtor in debtors %}
+          <tr>
+            <td>{{ debtor.name }}</td>
+            <td class="text-right amount-negative">₦{{ debtor.account_balance|intcomma }}</td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="2" class="text-center" style="padding: 30px; color: var(--text-muted);">
+              ✅ No debtors found. Good job!
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- INVENTORY ALERTS -->
+    <div class="table-card">
+      <div class="table-card-header alert">
+        <h3>⚠️ Inventory Alerts</h3>
+      </div>
+      <div class="alert-list">
         {% if not alerts.materials and not alerts.blocks %}
-        <div class="flex items-center text-green-600 dark:text-green-400">
-          <span class="text-2xl mr-2">✅</span> All stock levels are healthy.
+        <div class="empty-state">
+          <div class="icon">✅</div>
+          <p>All stock levels are healthy!</p>
         </div>
         {% else %}
-        <ul class="space-y-3">
           {% for mat in alerts.materials %}
-          <li class="flex justify-between items-center p-3 bg-red-50 dark:bg-red-900/10 rounded-md border border-red-100 dark:border-red-800">
-            <span class="text-red-700 dark:text-red-300 font-medium">{{ mat.get_name_display }}</span>
-            <span class="text-red-800 dark:text-red-200 font-bold text-sm">{{ mat.current_stock }} Left</span>
-          </li>
+          <div class="alert-item critical">
+            <span class="name">{{ mat.get_name_display }}</span>
+            <span class="badge">{{ mat.current_stock }} Left</span>
+          </div>
           {% endfor %}
           {% for block in alerts.blocks %}
-          <li class="flex justify-between items-center p-3 bg-orange-50 dark:bg-orange-900/10 rounded-md border border-orange-100 dark:border-orange-800">
-            <span class="text-orange-700 dark:text-orange-300 font-medium">{{ block.name }}</span>
-            <span class="text-orange-800 dark:text-orange-200 font-bold text-sm">{{ block.current_stock }} Left</span>
-          </li>
+          <div class="alert-item warning">
+            <span class="name">{{ block.name }}</span>
+            <span class="badge">{{ block.current_stock }} Left</span>
+          </div>
           {% endfor %}
-        </ul>
         {% endif %}
       </div>
     </div>
   </div>
 
-  <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700 mb-8">
-    <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-      <h3 class="font-bold text-gray-700 dark:text-gray-200">🚚 Recent Supplies</h3>
-    </div>
-    <div class="divide-y divide-gray-100 dark:divide-gray-700">
+  <!-- RECENT SUPPLIES -->
+  <h2 class="section-title">🚚 Recent Supplies</h2>
+  <div class="table-card" style="margin-bottom: 40px;">
+    <div class="activity-feed">
       {% for log in activity %}
-      <div class="p-4 hover:bg-gray-50 dark:hover:bg-gray-700 flex justify-between items-center">
-        <div>
-          <div class="font-bold text-gray-800 dark:text-gray-100">
-            {{ log.customer.name }}
-          </div>
-          <div class="text-sm text-gray-500 dark:text-gray-400">
-            {{ log.quantity_delivered }} x {{ log.block_type.name }}
-            <span class="text-xs bg-gray-100 dark:bg-gray-600 px-2 py-0.5 rounded ml-2">{{ log.get_delivery_type_display }}</span>
+      <div class="activity-item">
+        <div class="activity-info">
+          <div class="customer">{{ log.customer.name }}</div>
+          <div class="details">
+            {{ log.quantity_delivered }} × {{ log.block_type.name }}
+            <span class="tag">{{ log.get_delivery_type_display }}</span>
           </div>
         </div>
-        <div class="text-right">
-          <div class="font-bold text-gray-700 dark:text-gray-300">
-            ₦{{ log.total_value|intcomma }}
-          </div>
-          <div class="text-xs text-gray-400">{{ log.date }}</div>
+        <div class="activity-amount">
+          <div class="value">₦{{ log.total_value|intcomma }}</div>
+          <div class="date">{{ log.date|date:"d M Y" }}</div>
         </div>
       </div>
       {% empty %}
-      <div class="p-6 text-center text-gray-500">No recent activity.</div>
+      <div class="empty-state">
+        <div class="icon">📦</div>
+        <p>No recent activity</p>
+      </div>
       {% endfor %}
     </div>
   </div>
 
-  <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700 mb-8">
-    <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/20">
-      <h3 class="font-bold text-blue-800 dark:text-blue-300">🚛 Jafan Transport Analysis (Profit Center)</h3>
+  <!-- TRANSPORT SECTION -->
+  <div class="transport-section">
+    <div class="transport-header">
+      <h3>🚛 Jafan Transport Analysis (Profit Center)</h3>
     </div>
-
-    <div class="p-6">
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-          <div class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">Transport Revenue</div>
-          <div class="text-xl font-bold text-gray-900 dark:text-white mt-1">₦{{ transport.revenue|intcomma }}</div>
-          <div class="text-xs text-gray-400 mt-1">Delivery Fees + Surcharges</div>
+    <div class="transport-body">
+      <div class="transport-stats">
+        <div class="transport-stat">
+          <div class="label">Transport Revenue</div>
+          <div class="amount" style="color: var(--success);">₦{{ transport.revenue|intcomma }}</div>
+          <div class="hint">Delivery Fees + Surcharges</div>
         </div>
-
-        <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-          <div class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">Fuel & Maint. Costs</div>
-          <div class="text-xl font-bold text-red-600 dark:text-red-400 mt-1">₦{{ transport.total_expense|intcomma }}</div>
-          <div class="text-xs text-gray-400 mt-1">Diesel: ₦{{ transport.fuel_cost|intcomma }}</div>
+        <div class="transport-stat">
+          <div class="label">Fuel & Maint. Costs</div>
+          <div class="amount" style="color: var(--danger);">₦{{ transport.total_expense|intcomma }}</div>
+          <div class="hint">Diesel: ₦{{ transport.fuel_cost|intcomma }}</div>
         </div>
-
-        <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-          <div class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">Net Profit</div>
-          <div class="text-xl font-bold {% if transport.net_profit >= 0 %}text-green-600 dark:text-green-400{% else %}text-red-500 dark:text-red-400{% endif %} mt-1">
+        <div class="transport-stat">
+          <div class="label">Net Profit</div>
+          <div class="amount" style="color: {% if transport.net_profit >= 0 %}var(--success){% else %}var(--danger){% endif %};">
             ₦{{ transport.net_profit|intcomma }}
           </div>
-          <div class="text-xs text-gray-400 mt-1">Revenue - Expenses</div>
+          <div class="hint">Revenue - Expenses</div>
         </div>
       </div>
 
-      <div class="border-t border-gray-100 dark:border-gray-600 pt-6">
-        <h4 class="font-semibold text-gray-700 dark:text-gray-300 mb-4 flex items-center">
+      <div class="fuel-audit">
+        <div class="fuel-audit-title">
           ⛽ Diesel Efficiency Audit
-          <span class="ml-2 text-xs bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 px-2 py-1 rounded-full">Formula: Expected vs Actual</span>
-        </h4>
-
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
-          <div class="p-3 border dark:border-gray-600 rounded-md">
-            <div class="text-2xl font-bold text-gray-800 dark:text-gray-100">
-              {{ transport.fuel_audit.actual_liters|floatformat:1 }} L
-            </div>
-            <div class="text-xs text-gray-500 dark:text-gray-400 uppercase mt-1">Actual Dispensed</div>
+          <span class="tag">Formula: Expected vs Actual</span>
+        </div>
+        <div class="fuel-grid">
+          <div class="fuel-stat">
+            <div class="number">{{ transport.fuel_audit.actual_liters|floatformat:1 }} L</div>
+            <div class="label">Actual Dispensed</div>
           </div>
-
-          <div class="p-3 border dark:border-gray-600 rounded-md">
-            <div class="text-2xl font-bold text-gray-600 dark:text-gray-400">
-              {{ transport.fuel_audit.expected_liters|floatformat:1 }} L
-            </div>
-            <div class="text-xs text-gray-500 dark:text-gray-400 uppercase mt-1">Expected (Benchmark)</div>
+          <div class="fuel-stat">
+            <div class="number">{{ transport.fuel_audit.expected_liters|floatformat:1 }} L</div>
+            <div class="label">Expected (Benchmark)</div>
           </div>
-
-          <div class="p-3 border rounded-md {% if transport.fuel_audit.variance > 0 %}bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800{% else %}bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800{% endif %}">
-            <div class="text-2xl font-bold {% if transport.fuel_audit.variance > 0 %}text-red-600 dark:text-red-400{% else %}text-green-600 dark:text-green-400{% endif %}">
+          <div class="fuel-stat {% if transport.fuel_audit.variance > 0 %}variance-positive{% else %}variance-negative{% endif %}">
+            <div class="number" style="color: {% if transport.fuel_audit.variance > 0 %}var(--danger){% else %}var(--success){% endif %};">
               {% if transport.fuel_audit.variance > 0 %}+{% endif %}{{ transport.fuel_audit.variance|floatformat:1 }} L
             </div>
-            <div class="text-xs {% if transport.fuel_audit.variance > 0 %}text-red-600 dark:text-red-400{% else %}text-green-600 dark:text-green-400{% endif %} uppercase mt-1">
-              Variance
-            </div>
+            <div class="label">Variance</div>
           </div>
-
-          <div class="p-3 border dark:border-yellow-800 rounded-md bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200">
-            <div class="text-2xl font-bold text-yellow-700 dark:text-yellow-400">
-              {{ transport.fuel_audit.outside_trips }}
-            </div>
-            <div class="text-xs text-yellow-700 dark:text-yellow-400 uppercase mt-1">Outside Town Trips</div>
+          <div class="fuel-stat outside">
+            <div class="number" style="color: #f57c00;">{{ transport.fuel_audit.outside_trips }}</div>
+            <div class="label">Outside Town Trips</div>
           </div>
         </div>
-
-        <p class="text-xs text-gray-500 dark:text-gray-400 mt-4 italic">
-          * <span class="font-bold text-red-500 dark:text-red-400">Positive Variance</span> means drivers used MORE fuel than expected. Check "Outside Town Trips" to see if it is justified.
+        <p class="fuel-note">
+          * <strong>Positive Variance</strong> means drivers used MORE fuel than expected. Check "Outside Town Trips" to see if it is justified.
         </p>
       </div>
     </div>
   </div>
 
-  <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700">
-    <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-      <h3 class="font-bold text-gray-700 dark:text-gray-200">📊 Export Reports</h3>
+  <!-- EXPORT SECTION -->
+  <div class="export-section">
+    <div class="export-header">
+      <h3>📊 Export Reports</h3>
     </div>
-    <div class="p-6">
-      <div class="mb-6 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
-        <div class="flex flex-wrap gap-4 items-end">
-          <div>
-            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Start Date</label>
-            <input type="date" id="start_date" name="start_date" class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+    <div class="export-body">
+      <div class="date-filter">
+        <div class="date-filter-row">
+          <div class="date-filter-group">
+            <label>Start Date</label>
+            <input type="date" id="start_date" name="start_date">
           </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">End Date</label>
-            <input type="date" id="end_date" name="end_date" class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+          <div class="date-filter-group">
+            <label>End Date</label>
+            <input type="date" id="end_date" name="end_date">
           </div>
-          <button type="button" onclick="applyDateFilters()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
-            Apply Dates
-          </button>
-          <button type="button" onclick="clearDateFilters()" class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-md text-sm font-medium transition-colors">
-            Clear
-          </button>
-          <span id="date_status" class="text-sm text-green-600 dark:text-green-400 font-medium ml-2"></span>
+          <button type="button" onclick="applyDateFilters()" class="btn btn-primary">Apply Dates</button>
+          <button type="button" onclick="clearDateFilters()" class="btn btn-secondary">Clear</button>
+          <span id="date_status" class="date-status"></span>
         </div>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
-          Leave empty to export current month's data.
-        </p>
+        <p class="date-hint">Leave empty to export current month's data.</p>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow">
-          <div class="flex items-center mb-3">
-            <span class="text-2xl mr-2">💰</span>
-            <h4 class="font-semibold text-gray-800 dark:text-gray-200">Sales Report</h4>
+      <div class="export-grid">
+        <div class="export-card">
+          <div class="export-card-header">
+            <span class="icon">💰</span>
+            <h4>Sales Report</h4>
           </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">All supplies and deliveries</p>
-          <div class="flex gap-2">
-            <a href="/erp/export/sales/csv/" class="export-link px-3 py-1.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded text-sm hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors">CSV</a>
-            <a href="/erp/export/sales/excel/" class="export-link px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 transition-colors">Excel</a>
-          </div>
-        </div>
-
-        <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow">
-          <div class="flex items-center mb-3">
-            <span class="text-2xl mr-2">📉</span>
-            <h4 class="font-semibold text-gray-800 dark:text-gray-200">Expenses Report</h4>
-          </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">All costs including auto-synced procurement</p>
-          <div class="flex gap-2">
-            <a href="/erp/export/expenses/csv/" class="export-link px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded text-sm hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors">CSV</a>
-            <a href="/erp/export/expenses/excel/" class="export-link px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 transition-colors">Excel</a>
+          <p>All supplies and deliveries</p>
+          <div class="export-btns">
+            <a href="/erp/export/sales/csv/" class="export-link export-btn csv">CSV</a>
+            <a href="/erp/export/sales/excel/" class="export-link export-btn excel">Excel</a>
           </div>
         </div>
 
-        <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow">
-          <div class="flex items-center mb-3">
-            <span class="text-2xl mr-2">🏭</span>
-            <h4 class="font-semibold text-gray-800 dark:text-gray-200">Production Report</h4>
+        <div class="export-card">
+          <div class="export-card-header">
+            <span class="icon">📉</span>
+            <h4>Expenses Report</h4>
           </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Blocks produced by team & machine</p>
-          <div class="flex gap-2">
-            <a href="/erp/export/production/csv/" class="export-link px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-sm hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors">CSV</a>
-            <a href="/erp/export/production/excel/" class="export-link px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors">Excel</a>
-          </div>
-        </div>
-
-        <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow">
-          <div class="flex items-center mb-3">
-            <span class="text-2xl mr-2">👥</span>
-            <h4 class="font-semibold text-gray-800 dark:text-gray-200">Customer Ledger</h4>
-          </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">All customers with transaction history</p>
-          <div class="flex gap-2">
-            <a href="/erp/export/customers/" class="export-link px-3 py-1.5 bg-purple-600 text-white rounded text-sm hover:bg-purple-700 transition-colors">Excel</a>
+          <p>All costs including auto-synced procurement</p>
+          <div class="export-btns">
+            <a href="/erp/export/expenses/csv/" class="export-link export-btn csv">CSV</a>
+            <a href="/erp/export/expenses/excel/" class="export-link export-btn excel">Excel</a>
           </div>
         </div>
 
-        <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow">
-          <div class="flex items-center mb-3">
-            <span class="text-2xl mr-2">📦</span>
-            <h4 class="font-semibold text-gray-800 dark:text-gray-200">Inventory Status</h4>
+        <div class="export-card">
+          <div class="export-card-header">
+            <span class="icon">🏭</span>
+            <h4>Production Report</h4>
           </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Current stock levels (Materials & Blocks)</p>
-          <div class="flex gap-2">
-            <a href="/erp/export/inventory/" class="px-3 py-1.5 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 transition-colors">Excel</a>
+          <p>Blocks produced by team & machine</p>
+          <div class="export-btns">
+            <a href="/erp/export/production/csv/" class="export-link export-btn csv">CSV</a>
+            <a href="/erp/export/production/excel/" class="export-link export-btn excel">Excel</a>
+          </div>
+        </div>
+
+        <div class="export-card">
+          <div class="export-card-header">
+            <span class="icon">👥</span>
+            <h4>Customer Ledger</h4>
+          </div>
+          <p>All customers with transaction history</p>
+          <div class="export-btns">
+            <a href="/erp/export/customers/" class="export-link export-btn purple">Excel</a>
+          </div>
+        </div>
+
+        <div class="export-card">
+          <div class="export-card-header">
+            <span class="icon">📦</span>
+            <h4>Inventory Status</h4>
+          </div>
+          <p>Current stock levels (Materials & Blocks)</p>
+          <div class="export-btns">
+            <a href="/erp/export/inventory/" class="export-btn yellow">Excel</a>
           </div>
         </div>
       </div>
@@ -321,7 +1016,6 @@
       return;
     }
 
-    // Update all export links with date parameters
     document.querySelectorAll("a.export-link").forEach((link) => {
       const url = new URL(link.href, window.location.origin);
       url.searchParams.set("start_date", startDate);
@@ -329,17 +1023,14 @@
       link.href = url.toString();
     });
 
-    // Show confirmation
     const statusEl = document.getElementById("date_status");
     statusEl.textContent = `✓ Dates applied: ${startDate} to ${endDate}`;
-    statusEl.className = "text-sm text-green-600 dark:text-green-400 font-medium ml-2";
   }
 
   function clearDateFilters() {
     document.getElementById("start_date").value = "";
     document.getElementById("end_date").value = "";
 
-    // Reset all export links to default (no date params)
     document.querySelectorAll("a.export-link").forEach((link) => {
       const url = new URL(link.href, window.location.origin);
       url.searchParams.delete("start_date");
@@ -349,7 +1040,6 @@
 
     const statusEl = document.getElementById("date_status");
     statusEl.textContent = "Dates cleared. Using current month.";
-    statusEl.className = "text-sm text-gray-600 dark:text-gray-400 font-medium ml-2";
     
     setTimeout(() => {
       statusEl.textContent = "";
