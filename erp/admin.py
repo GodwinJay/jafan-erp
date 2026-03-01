@@ -90,23 +90,85 @@ def get_vendor_materials(request):
 
 class RestrictedAdmin(ModelAdmin):
     """
-    Base admin class with hardcoded permissions.
-    Only superusers can edit or delete records.
-    All staff can create and view.
+    Base admin class with role-based permissions.
+    - Superusers: Full access to everything
+    - ADMIN role: Full access to everything  
+    - Other roles: Access only to their designated models
     """
+    
+    # Define which models each role can access
+    ROLE_MODEL_ACCESS = {
+        'TRANSPORT': [
+            'transportrevenue', 'fuellog', 'maintenancelog', 'truck', 
+            'transportasset', 'employee', 'accounttransfer', 'paymentaccount',
+            'supplylog',  # View deliveries
+        ],
+        'SALES': [
+            'customer', 'site', 'salesorder', 'salesorderitem', 'supplylog',
+            'payment', 'cashrefund', 'returnlog', 'blocktype', 'sandsale',
+        ],
+        'PRODUCTION': [
+            'productionlog', 'blocktype', 'material', 'procurementlog',
+            'team', 'employee', 'teampayment', 'machine',
+        ],
+        'ACCOUNTS': [
+            'paymentaccount', 'expense', 'expensecategory', 'bankcharge',
+            'accounttransfer', 'vendor', 'vendorpayment', 'customer',
+            'payment', 'loan', 'loanrepayment', 'debtor',
+        ],
+        'ADMIN': '__all__',  # Full access
+    }
 
-    def has_change_permission(self, request, obj=None):
-        return request.user.is_superuser
+    def _get_model_name(self):
+        """Get the lowercase model name for this admin."""
+        return self.model._meta.model_name
 
-    def has_delete_permission(self, request, obj=None):
-        return request.user.is_superuser
+    def _get_user_role(self, user):
+        """Get the role of the user from their employee profile."""
+        if user.is_superuser:
+            return 'ADMIN'
+        try:
+            if hasattr(user, 'employee_profile') and user.employee_profile:
+                return user.employee_profile.role or ''
+        except:
+            pass
+        return ''
 
-    def has_add_permission(self, request):
-        return True
+    def _user_has_role_access(self, user):
+        """Check if user's role grants access to this model."""
+        if user.is_superuser:
+            return True
+        
+        role = self._get_user_role(user)
+        if not role:
+            return False
+        
+        if role == 'ADMIN':
+            return True
+            
+        allowed_models = self.ROLE_MODEL_ACCESS.get(role, [])
+        return self._get_model_name() in allowed_models
+
+    def has_module_permission(self, request):
+        """Determines if the user can see the app in admin."""
+        return self._user_has_role_access(request.user)
 
     def has_view_permission(self, request, obj=None):
-        return True
-    
+        return self._user_has_role_access(request.user)
+
+    def has_add_permission(self, request):
+        return self._user_has_role_access(request.user)
+
+    def has_change_permission(self, request, obj=None):
+        """Only superusers and ADMIN role can edit."""
+        role = self._get_user_role(request.user)
+        return request.user.is_superuser or role == 'ADMIN'
+
+    def has_delete_permission(self, request, obj=None):
+        """Only superusers and ADMIN role can delete."""
+        role = self._get_user_role(request.user)
+        return request.user.is_superuser or role == 'ADMIN'
+
     def delete_model(self, request, obj):
         obj.delete()
 
@@ -747,8 +809,22 @@ class SiteAdmin(RestrictedAdmin):
 
 @admin.register(Employee)
 class EmployeeAdmin(RestrictedAdmin):
-    list_display = ["name", "role", "team", "current_balance"]
-    search_fields = ["name", "phone"] 
+    list_display = ['name', 'phone', 'role', 'user', 'team', 'is_active']
+    list_filter = ['role', 'is_active', 'team']
+    search_fields = ['name', 'phone']
+    autocomplete_fields = ['user', 'team']
+    
+    fieldsets = (
+        ('Basic Info', {
+            'fields': ('name', 'phone', 'role', 'user')
+        }),
+        ('Work', {
+            'fields': ('team', 'pay_type', 'current_balance')
+        }),
+        ('Status', {
+            'fields': ('is_active',)
+        }),
+    ) 
 
 
 @admin.register(Vendor)

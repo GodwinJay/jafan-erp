@@ -170,6 +170,12 @@ class PaymentAccount(models.Model):
 
     def __str__(self):
         return f"{self.bank_name} - {self.business_unit}"
+
+    def save(self, *args, **kwargs):
+        # On first creation, set current_balance to opening_balance
+        if not self.pk:
+            self.current_balance = self.opening_balance
+        super().save(*args, **kwargs)
     
     @property
     def balance_display(self):
@@ -180,6 +186,7 @@ class PaymentAccount(models.Model):
         if self.last_audit_balance is not None:
             return self.current_balance - self.last_audit_balance
         return None
+
 
 
 # ==============================================================================
@@ -261,9 +268,22 @@ class Site(models.Model):
 
 
 class Employee(models.Model):
+    ROLE_CHOICES = [
+        ('ADMIN', 'Administrator'),
+        ('TRANSPORT', 'Transport'),
+        ('SALES', 'Sales'),
+        ('PRODUCTION', 'Production'),
+        ('ACCOUNTS', 'Accounts'),
+    ]
+    
     name = models.CharField(max_length=100)
     phone = models.CharField(max_length=20, blank=True)
-    role = models.CharField(max_length=20)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, blank=True)
+    user = models.OneToOneField(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='employee_profile',
+        help_text="Link to Django user account for login access"
+    )
     team = models.ForeignKey(Team, on_delete=models.SET_NULL, null=True, blank=True)
     pay_type = models.CharField(max_length=10, default='WEEKLY')
     current_balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
@@ -374,6 +394,19 @@ class Expense(models.Model):
 
     def __str__(self):
         return f"{self.date} | {self.category.name} | ₦{self.amount:,.2f}"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        errors = {}
+        
+        if self.amount is not None and self.amount <= 0:
+            errors['amount'] = 'Expense amount must be greater than zero.'
+        
+        if self.is_paid and not self.payment_account:
+            errors['payment_account'] = 'Payment account is required for paid expenses.'
+        
+        if errors:
+            raise ValidationError(errors)
 
     @transaction.atomic
     def save(self, *args, **kwargs):
@@ -728,6 +761,11 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"Payment: ₦{self.amount:,.2f} from {self.customer.name}"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.amount is not None and self.amount <= 0:
+            raise ValidationError({'amount': 'Payment amount must be greater than zero.'})
 
     @transaction.atomic
     def save(self, *args, **kwargs):
