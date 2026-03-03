@@ -91,33 +91,82 @@ def get_vendor_materials(request):
 class RestrictedAdmin(ModelAdmin):
     """
     Base admin class with role-based permissions.
-    - Superusers: Full access to everything
-    - ADMIN role: Full access to everything  
-    - Other roles: Access only to their designated models
+    
+    Roles:
+    - ADMIN (Jeremiah): Full access - view, add, edit, delete everything
+    - MANAGER (Ezekiel): View & add everything, no edit/delete, can approve loans
+    - OPERATIONS (Joshua): Production, Inventory, Fuel, Sand Sales, Loans
+    - SITE_MANAGER (Ene): Sales, Customers, Expenses, Cash, Reports
+    - SALES (Nkiruka): Sales Orders, Payments, Customers (limited)
+    - TRANSPORT (Daniel): Transport, Fuel, Maintenance, Vendor Payments
+    
+    Note: Everyone can do sales (Sales Orders, Payments, Customers, Sites)
     """
     
-    # Define which models each role can access
+    # Common sales models everyone can access
+    COMMON_SALES_MODELS = [
+        'customer', 'site', 'salesorder', 'salesorderitem', 
+        'supplylog', 'payment', 'blocktype',
+    ]
+    
+    # Define which models each role can access (in addition to common sales)
     ROLE_MODEL_ACCESS = {
-        'TRANSPORT': [
-            'transportrevenue', 'fuellog', 'maintenancelog', 'truck', 
-            'transportasset', 'employee', 'accounttransfer', 'paymentaccount',
-            'supplylog',  # View deliveries
+        'ADMIN': '__all__',
+        
+        'MANAGER': '__all__',  # Can view/add everything
+        
+        'OPERATIONS': [
+            # Production & Inventory
+            'productionlog', 'material', 'procurementlog', 'machine',
+            'team', 'employee', 'teampayment',
+            # Stock & Breakages
+            'returnlog', 'cashrefund',
+            # Fuel & Diesel
+            'fuellog', 'truck',
+            # Sand Sales
+            'sandsale',
+            # Loans (sand-related)
+            'loan', 'loanrepayment', 'debtor',
+            # Transport Dashboard (view trips)
+            'transportrevenue',
         ],
+        
+        'SITE_MANAGER': [
+            # Sales (already in common)
+            'cashrefund', 'returnlog',
+            # Expenses & Cash
+            'expense', 'expensecategory', 'paymentaccount',
+            # Monitoring
+            'fuellog',
+            # Vendors
+            'vendor', 'vendorpayment',
+            # Reports access (dashboards handled separately)
+        ],
+        
         'SALES': [
-            'customer', 'site', 'salesorder', 'salesorderitem', 'supplylog',
-            'payment', 'cashrefund', 'returnlog', 'blocktype', 'sandsale',
+            # Basic sales (already in common)
+            'cashrefund', 'returnlog',
         ],
-        'PRODUCTION': [
-            'productionlog', 'blocktype', 'material', 'procurementlog',
-            'team', 'employee', 'teampayment', 'machine',
+        
+        'TRANSPORT': [
+            # Transport operations
+            'transportrevenue', 'fuellog', 'maintenancelog',
+            'truck', 'transportasset',
+            # Drivers
+            'employee',
+            # Vendor payments (spare parts)
+            'vendor', 'vendorpayment',
         ],
-        'ACCOUNTS': [
-            'paymentaccount', 'expense', 'expensecategory', 'bankcharge',
-            'accounttransfer', 'vendor', 'vendorpayment', 'customer',
-            'payment', 'loan', 'loanrepayment', 'debtor',
-        ],
-        'ADMIN': '__all__',  # Full access
     }
+    
+    # Roles that can EDIT records (not just view/add)
+    EDIT_ROLES = ['ADMIN']
+    
+    # Roles that can DELETE records
+    DELETE_ROLES = ['ADMIN']
+    
+    # Roles that can APPROVE loans
+    LOAN_APPROVAL_ROLES = ['ADMIN', 'MANAGER']
 
     def _get_model_name(self):
         """Get the lowercase model name for this admin."""
@@ -143,11 +192,19 @@ class RestrictedAdmin(ModelAdmin):
         if not role:
             return False
         
-        if role == 'ADMIN':
+        # ADMIN and MANAGER have access to everything
+        if role in ['ADMIN', 'MANAGER']:
             return True
-            
+        
+        model_name = self._get_model_name()
+        
+        # Everyone can access common sales models
+        if model_name in self.COMMON_SALES_MODELS:
+            return True
+        
+        # Check role-specific access
         allowed_models = self.ROLE_MODEL_ACCESS.get(role, [])
-        return self._get_model_name() in allowed_models
+        return model_name in allowed_models
 
     def has_module_permission(self, request):
         """Determines if the user can see the app in admin."""
@@ -160,14 +217,14 @@ class RestrictedAdmin(ModelAdmin):
         return self._user_has_role_access(request.user)
 
     def has_change_permission(self, request, obj=None):
-        """Only superusers and ADMIN role can edit."""
+        """Only ADMIN can edit records."""
         role = self._get_user_role(request.user)
-        return request.user.is_superuser or role == 'ADMIN'
+        return request.user.is_superuser or role in self.EDIT_ROLES
 
     def has_delete_permission(self, request, obj=None):
-        """Only superusers and ADMIN role can delete."""
+        """Only ADMIN can delete records."""
         role = self._get_user_role(request.user)
-        return request.user.is_superuser or role == 'ADMIN'
+        return request.user.is_superuser or role in self.DELETE_ROLES
 
     def delete_model(self, request, obj):
         obj.delete()
@@ -175,6 +232,11 @@ class RestrictedAdmin(ModelAdmin):
     def delete_queryset(self, request, queryset):
         for obj in queryset:
             obj.delete()
+    
+    def can_approve_loan(self, user):
+        """Check if user can approve loans."""
+        role = self._get_user_role(user)
+        return role in self.LOAN_APPROVAL_ROLES
 
 
 # =============================================================================
@@ -1520,9 +1582,9 @@ class LoanAdmin(RestrictedAdmin):
     list_display = [
         'loan_id', 'date', 'debtor', 'amount_display', 'repaid_display',
         'outstanding_display', 'progress_display', 'repayment_mode', 
-        'is_fully_repaid', 'pdf_actions'
+        'is_fully_repaid', 'approved_by', 'pdf_actions'
     ]
-    list_filter = ['date', 'repayment_mode', 'is_fully_repaid', 'payment_account']
+    list_filter = ['date', 'repayment_mode', 'is_fully_repaid', 'payment_account', 'approved_by']
     search_fields = ['debtor__name', 'debtor__phone', 'purpose', 'reference']
     date_hierarchy = 'date'
     ordering = ['-date', '-created_at']
@@ -1541,7 +1603,8 @@ class LoanAdmin(RestrictedAdmin):
             'classes': ('collapse',)
         }),
         ('Approval', {
-            'fields': ('approved_by', 'reference', 'notes')
+            'fields': ('approved_by', 'reference', 'notes'),
+            'description': 'Only Administrators and General Managers can approve loans.'
         }),
     )
 
@@ -1584,6 +1647,38 @@ class LoanAdmin(RestrictedAdmin):
             statement_url
         )
     pdf_actions.short_description = "PDF"
+
+    def get_readonly_fields(self, request, obj=None):
+        """Make approved_by readonly for non-approvers, or if already approved."""
+        readonly = list(super().get_readonly_fields(request, obj) or [])
+        
+        role = self._get_user_role(request.user)
+        
+        # If user cannot approve loans, make approved_by readonly
+        if role not in self.LOAN_APPROVAL_ROLES:
+            if 'approved_by' not in readonly:
+                readonly.append('approved_by')
+        
+        # If loan is already approved and user is not admin, lock the field
+        if obj and obj.approved_by and role != 'ADMIN':
+            if 'approved_by' not in readonly:
+                readonly.append('approved_by')
+        
+        return readonly
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """Limit approved_by choices to users who can approve (ADMIN and MANAGER only)."""
+        if db_field.name == 'approved_by':
+            from .models import User
+            approver_ids = []
+            for user in User.objects.filter(is_active=True, is_staff=True):
+                if user.is_superuser:
+                    approver_ids.append(user.pk)
+                elif hasattr(user, 'employee_profile') and user.employee_profile:
+                    if user.employee_profile.role in ['ADMIN', 'MANAGER']:
+                        approver_ids.append(user.pk)
+            kwargs['queryset'] = User.objects.filter(pk__in=approver_ids)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def save_model(self, request, obj, form, change):
         if not obj.recorded_by:

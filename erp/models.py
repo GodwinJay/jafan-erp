@@ -270,10 +270,11 @@ class Site(models.Model):
 class Employee(models.Model):
     ROLE_CHOICES = [
         ('ADMIN', 'Administrator'),
-        ('TRANSPORT', 'Transport'),
-        ('SALES', 'Sales'),
-        ('PRODUCTION', 'Production'),
-        ('ACCOUNTS', 'Accounts'),
+        ('MANAGER', 'General Manager'),
+        ('OPERATIONS', 'Operations Manager'),
+        ('SITE_MANAGER', 'Site Manager'),
+        ('SALES', 'Sales Assistant'),
+        ('TRANSPORT', 'Transport Officer'),
     ]
     
     name = models.CharField(max_length=100)
