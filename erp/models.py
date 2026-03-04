@@ -793,7 +793,6 @@ class Payment(models.Model):
 
 class SupplyLog(models.Model):
     DELIVERY_TYPE_CHOICES = [('DELIVERED', 'Company Delivery'), ('SELF_PICKUP', 'Customer Self-Pickup')]
-
     date = models.DateField(default=timezone.now)
     delivery_type = models.CharField(max_length=20, choices=DELIVERY_TYPE_CHOICES, default='DELIVERED')
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name='supplies')
@@ -801,18 +800,15 @@ class SupplyLog(models.Model):
     sales_order = models.ForeignKey(SalesOrder, on_delete=models.SET_NULL, null=True, blank=True, related_name='supplies')
     order_item = models.ForeignKey(SalesOrderItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='supplies')
     block_type = models.ForeignKey(BlockType, on_delete=models.PROTECT, related_name='supplies')
-
     quantity_loaded = models.PositiveIntegerField()
     breakages = models.PositiveIntegerField(default=0)
     quantity_returned = models.PositiveIntegerField(default=0)
     quantity_delivered = models.PositiveIntegerField(editable=False, default=0)
-
     unit_price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     logistics_discount = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     total_value = models.DecimalField(max_digits=12, decimal_places=2, editable=False, default=Decimal('0.00'))
     logistics_income = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), editable=False)
-
-    # NEW: COGS Fields - Frozen at time of sale for accurate P&L
+    # COGS Fields - Frozen at time of sale for accurate P&L
     cost_of_goods_sold = models.DecimalField(
         max_digits=12, decimal_places=2,
         editable=False, default=Decimal('0.00'),
@@ -823,7 +819,6 @@ class SupplyLog(models.Model):
         editable=False, default=Decimal('0.00'),
         help_text="total_value - cost_of_goods_sold"
     )
-
     truck = models.ForeignKey(Truck, on_delete=models.SET_NULL, null=True, blank=True, related_name='supplies')
     driver = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='deliveries', limit_choices_to={'role': 'DRIVER'})
     pickup_authorized_by = models.CharField(max_length=100, blank=True)
@@ -847,8 +842,8 @@ class SupplyLog(models.Model):
             raise ValidationError({'truck': "Truck is required for Company Delivery."})
         if self.delivery_type == 'SELF_PICKUP' and not self.pickup_authorized_by:
             raise ValidationError({'pickup_authorized_by': "Authorization required for Self-Pickup."})
-
-        # NEW: Validate quantity doesn't exceed order item remaining
+        
+        # Validate quantity doesn't exceed order item remaining
         if self.order_item:
             quantity_to_deliver = self.quantity_loaded - self.breakages - self.quantity_returned
             remaining = self.order_item.quantity_requested - self.order_item.quantity_supplied
@@ -863,7 +858,7 @@ class SupplyLog(models.Model):
                 raise ValidationError({
                     'quantity_loaded': f"Cannot supply {quantity_to_deliver} blocks. Only {remaining} remaining on this order item."
                 })
-
+        
         # Credit Check
         if self.order_item:
             price = self.order_item.agreed_price
@@ -874,12 +869,10 @@ class SupplyLog(models.Model):
         
         qty = self.quantity_loaded - self.breakages - self.quantity_returned
         new_debt = (qty * price) - (self.logistics_discount or 0)
-
         current_bal = self.customer.account_balance
         if self.pk:
             old = SupplyLog.objects.get(pk=self.pk)
             current_bal += old.total_value  # Add back old debit
-
         projected = current_bal - new_debt
         if projected < 0 and abs(projected) > self.customer.credit_limit:
             raise ValidationError(f"Credit Limit Exceeded! Projected Balance: {projected}, Limit: {self.customer.credit_limit}")
@@ -887,6 +880,7 @@ class SupplyLog(models.Model):
     @transaction.atomic
     def save(self, *args, **kwargs):
         is_edit = self.pk is not None
+        
         if is_edit:
             old = SupplyLog.objects.select_for_update().get(pk=self.pk)
             # REVERSE OLD
@@ -934,9 +928,7 @@ class SupplyLog(models.Model):
         current_wac = self.block_type.weighted_average_cost or Decimal('0.00')
         self.cost_of_goods_sold = Decimal(self.quantity_delivered) * current_wac
         
-        # ✅ FIX: Subtract ONLY surcharge from gross profit
-        # Base logistics is already in COGS (via WAC)
-        # Surcharge is NOT in COGS but IS in unit_price, so we subtract it
+        # Subtract ONLY surcharge from gross profit
         self.gross_profit_on_sale = self.total_value - self.cost_of_goods_sold - surcharge
 
         super().save(*args, **kwargs)
@@ -963,8 +955,14 @@ class SupplyLog(models.Model):
                     account_balance=F('account_balance') + self.logistics_income
                 )
 
+        # AUTO-CREATE BREAKAGE LOG
+        self._sync_breakage_log()
+
     @transaction.atomic
     def delete(self, *args, **kwargs):
+        # Delete auto-created breakage logs first
+        BreakageLog.objects.filter(supply_log=self, is_auto_created=True).delete()
+
         net_deduction = self.quantity_loaded - self.quantity_returned
         BlockType.objects.filter(pk=self.block_type.pk).update(
             current_stock=F('current_stock') + net_deduction
@@ -1003,6 +1001,26 @@ class SupplyLog(models.Model):
             else:
                 order.status = 'PENDING'
             order.save()
+
+    def _sync_breakage_log(self):
+        """Auto-create/update BreakageLog for supply breakages."""
+        # Delete any existing auto-created breakage log for this supply
+        BreakageLog.objects.filter(supply_log=self, is_auto_created=True).delete()
+        
+        # Create new breakage log if there are breakages
+        if self.breakages > 0:
+            BreakageLog.objects.create(
+                date=self.date,
+                block_type=self.block_type,
+                quantity_broken=self.breakages,
+                reason='LOADING_OFFLOADING',
+                description=f"Auto-logged from Supply #{self.pk} to {self.customer.name}",
+                recorded_by=self.recorded_by,
+                approved_by=None,
+                supply_log=self,
+                is_auto_created=True,
+                convert_to_half=False,
+            )
 
 
 # ==============================================================================
@@ -1118,17 +1136,27 @@ class BreakageLog(models.Model):
     date = models.DateField(default=timezone.now)
     block_type = models.ForeignKey(BlockType, on_delete=models.PROTECT, related_name='breakages')
     quantity_broken = models.PositiveIntegerField()
-    reason = models.CharField(max_length=20, choices=[('STACKING', 'Stacking'), ('HANDLING', 'Handling')], default='HANDLING')
+    reason = models.CharField(max_length=20, choices=[
+        ('STACKING', 'Stacking'), 
+        ('HANDLING', 'Handling'),
+        ('LOADING_OFFLOADING', 'Loading/Offloading'),  # NEW
+    ], default='HANDLING')
     description = models.TextField(blank=True)
     convert_to_half = models.BooleanField(default=False)
     half_block_type = models.ForeignKey(BlockType, on_delete=models.SET_NULL, null=True, blank=True, related_name='salvaged_from_breakages')
     quantity_salvaged = models.PositiveIntegerField(default=0)
     recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='recorded_breakages')
-    approved_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='approved_breakages')
+    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_breakages')  # Changed to allow null for auto-entries
+    supply_log = models.ForeignKey('SupplyLog', on_delete=models.SET_NULL, null=True, blank=True, related_name='breakage_logs')  # NEW - Link to source
+    is_auto_created = models.BooleanField(default=False, editable=False)  # NEW - Flag for auto entries
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def clean(self):
+        # Skip approved_by validation for auto-created entries
+        if not self.is_auto_created and not self.approved_by:
+            raise ValidationError({'approved_by': 'Approved by is required for manual entries.'})
+        
         if self.convert_to_half:
             if not self.half_block_type:
                 raise ValidationError({'half_block_type': 'You must select a half block type when converting.'})
@@ -1146,17 +1174,24 @@ class BreakageLog(models.Model):
             if old.convert_to_half and old.half_block_type:
                 BlockType.objects.filter(pk=old.half_block_type.pk).update(current_stock=F('current_stock') - old.quantity_salvaged)
 
-        if self.convert_to_half and self.quantity_salvaged == 0: self.quantity_salvaged = self.quantity_broken * 2
+        if self.convert_to_half and self.quantity_salvaged == 0:
+            self.quantity_salvaged = self.quantity_broken * 2
         
         super().save(*args, **kwargs)
 
-        BlockType.objects.filter(pk=self.block_type.pk).update(current_stock=F('current_stock') - self.quantity_broken)
+        # Only deduct stock if NOT auto-created (SupplyLog already deducted breakages from loaded qty)
+        if not self.is_auto_created:
+            BlockType.objects.filter(pk=self.block_type.pk).update(current_stock=F('current_stock') - self.quantity_broken)
+        
         if self.convert_to_half and self.half_block_type:
             BlockType.objects.filter(pk=self.half_block_type.pk).update(current_stock=F('current_stock') + self.quantity_salvaged)
 
     @transaction.atomic
     def delete(self, *args, **kwargs):
-        BlockType.objects.filter(pk=self.block_type.pk).update(current_stock=F('current_stock') + self.quantity_broken)
+        # Only restore stock if NOT auto-created
+        if not self.is_auto_created:
+            BlockType.objects.filter(pk=self.block_type.pk).update(current_stock=F('current_stock') + self.quantity_broken)
+        
         if self.convert_to_half and self.half_block_type:
             BlockType.objects.filter(pk=self.half_block_type.pk).update(current_stock=F('current_stock') - self.quantity_salvaged)
         super().delete(*args, **kwargs)
