@@ -124,7 +124,7 @@ class RestrictedAdmin(ModelAdmin):
             # Fuel & Diesel
             'fuellog', 'truck',
             # Sand Sales
-            'sandsale',
+            'sandsale', 'sandvehicletype',
             # Loans (sand-related)
             'loan', 'loanrepayment', 'debtor',
             # Transport Dashboard (view trips)
