@@ -146,6 +146,8 @@ class RestrictedAdmin(ModelAdmin):
         'SALES': [
             # Basic sales (already in common)
             'cashrefund', 'returnlog',
+            # Expenses & Cash
+            'expense', 'expensecategory', 'paymentaccount',
         ],
         
         'TRANSPORT': [
