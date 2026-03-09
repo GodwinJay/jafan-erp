@@ -33,7 +33,6 @@ from reportlab.graphics import renderPDF
 # ==============================================================================
 # FONT REGISTRATION FOR NAIRA SYMBOL
 # ==============================================================================
-
 FONT_REGISTERED = False
 UNICODE_FONT = 'Helvetica'
 UNICODE_FONT_BOLD = 'Helvetica-Bold'
@@ -46,27 +45,37 @@ def register_unicode_font():
         return UNICODE_FONT
     
     font_paths = [
+        # Linux (Railway/Ubuntu) - Most likely to work
+        ('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'),
+        # Alternative Linux paths
+        ('DejaVuSans', '/usr/share/fonts/dejavu/DejaVuSans.ttf', '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf'),
         # Windows
         ('Arial', 'C:/Windows/Fonts/arial.ttf', 'C:/Windows/Fonts/arialbd.ttf'),
         ('Calibri', 'C:/Windows/Fonts/calibri.ttf', 'C:/Windows/Fonts/calibrib.ttf'),
         ('DejaVuSans', 'C:/Windows/Fonts/DejaVuSans.ttf', 'C:/Windows/Fonts/DejaVuSans-Bold.ttf'),
-        # Linux
-        ('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'),
     ]
     
     for font_name, regular_path, bold_path in font_paths:
         try:
             if os.path.exists(regular_path):
                 pdfmetrics.registerFont(TTFont(font_name, regular_path))
+                UNICODE_FONT = font_name
+                
                 if os.path.exists(bold_path):
                     pdfmetrics.registerFont(TTFont(f'{font_name}-Bold', bold_path))
                     UNICODE_FONT_BOLD = f'{font_name}-Bold'
-                UNICODE_FONT = font_name
+                else:
+                    UNICODE_FONT_BOLD = font_name  # Use regular if bold not found
+                
                 FONT_REGISTERED = True
+                print(f"✅ Registered Unicode font: {font_name}")
                 return font_name
-        except Exception:
+        except Exception as e:
+            print(f"⚠️ Failed to register {font_name}: {e}")
             continue
     
+    # Fallback - use Helvetica but replace ₦ with "NGN"
+    print("⚠️ No Unicode font found, using Helvetica fallback")
     FONT_REGISTERED = True
     return 'Helvetica'
 
@@ -346,7 +355,13 @@ class PDFGenerator:
     
     def _format_currency(self, amount):
         """Format as Nigerian Naira."""
-        return f"₦{amount:,.2f}"
+        if amount is None:
+            amount = Decimal('0')
+
+        if UNICODE_FONT != 'Helvetica':
+            return f"₦{amount:,.2f}"
+        else:
+            return f"NGN{amount:,.2f}"
     
     def _amount_in_words(self, amount):
         """Convert amount to words (simplified)."""

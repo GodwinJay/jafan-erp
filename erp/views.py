@@ -469,8 +469,18 @@ def pl_report_view(request):
 
 @staff_member_required
 def generate_sand_receipt(request, sale_id):
-    sale = get_object_or_404(SandSale, pk=sale_id)
-    return SandSaleReceiptGenerator().generate(sale)
+    try:
+        sale = get_object_or_404(SandSale, pk=sale_id)
+        return SandSaleReceiptGenerator().generate(sale)
+    except Exception as e:
+        # Log the error and return a helpful message
+        import traceback
+        traceback.print_exc()
+        return HttpResponse(
+            f"Error generating PDF: {str(e)}<br><br>Please contact support.",
+            content_type='text/html',
+            status=500
+        )
 
 # ==================== DATE SELECTION HELPERS ====================
 
