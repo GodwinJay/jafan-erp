@@ -220,7 +220,7 @@ class Machine(models.Model):
 
 class Customer(models.Model):
     name = models.CharField(max_length=100)
-    phone = models.CharField(max_length=20, unique=True)
+    phone = models.CharField(max_length=24, unique=False)
     email = models.EmailField(blank=True, null=True)
     office_address = models.TextField(blank=True, null=True)
     customer_type = models.CharField(max_length=20, default='INDIVIDUAL')
