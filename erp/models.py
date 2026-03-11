@@ -275,6 +275,7 @@ class Employee(models.Model):
         ('SITE_MANAGER', 'Site Manager'),
         ('SALES', 'Sales Assistant'),
         ('TRANSPORT', 'Transport Officer'),
+        ('DRIVER','Diver')
     ]
     
     name = models.CharField(max_length=100)
