@@ -1795,6 +1795,10 @@ class QuickSale(models.Model):
     block_type = models.ForeignKey(BlockType, on_delete=models.PROTECT)
     quantity = models.PositiveIntegerField()
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    logistics_discount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        help_text="Discount for self-pickup (no delivery)"
+    )
     total_amount = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
     
     # Payment (always paid upfront)
@@ -1837,8 +1841,8 @@ class QuickSale(models.Model):
         return f"QS-{self.pk:05d} | {self.quantity} {self.block_type.name} | ₦{self.total_amount:,.0f}"
     
     def save(self, *args, **kwargs):
-        # Calculate total
-        self.total_amount = self.quantity * self.unit_price
+        # Calculate total (with discount)
+        self.total_amount = (self.quantity * self.unit_price) - self.logistics_discount
         
         is_new = self.pk is None
         super().save(*args, **kwargs)

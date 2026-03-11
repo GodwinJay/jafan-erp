@@ -17,7 +17,7 @@ from .exports import ReportExporter
 from .models import (
     SupplyLog, Payment, Customer, SalesOrder, 
     Vendor, PaymentAccount, Expense, FuelLog, MaintenanceLog,
-    Truck, TransportRevenue, TransportAsset, SalesOrderItem, SandSale, Loan, LoanRepayment, Debtor,
+    Truck, TransportRevenue, TransportAsset, SalesOrderItem, SandSale, Loan, LoanRepayment, Debtor, QuickSale
 
 
 )
@@ -783,6 +783,12 @@ def generate_account_statement(request, account_id):
     s, e = parse_dates(request)
     return AccountStatementGenerator().generate(account, s, e)
 
+@staff_member_required
+def generate_quick_sale_receipt(request, sale_id):
+    from .models import QuickSale
+    sale = get_object_or_404(QuickSale, pk=sale_id)
+    return QuickSaleReceiptGenerator().generate(sale)
+
 
 # Add these to views.py
 @staff_member_required
@@ -1230,5 +1236,4 @@ def get_vendor_materials(request):
             return JsonResponse(result, safe=False)
     materials = Material.objects.all().values('id', 'name')
     return JsonResponse(list(materials), safe=False)
-
 

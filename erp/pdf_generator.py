@@ -2106,7 +2106,7 @@ class AccountStatementGenerator(PDFGenerator):
     """Generate professional branded Account Statement on A4 (like a bank statement)."""
 
     def generate(self, account, start_date=None, end_date=None):
-        from .models import Payment, Expense, ProcurementLog, CashRefund, BankCharge, AccountTransfer, VendorPayment, SandSale, Loan, LoanRepayment, TeamPayment, FuelLog, MaintenanceLog, TransportRevenue
+        from .models import Payment, Expense, ProcurementLog, CashRefund, BankCharge, AccountTransfer, VendorPayment, SandSale, Loan, LoanRepayment, TeamPayment, FuelLog, MaintenanceLog, TransportRevenue, QuickSale
         
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
@@ -2209,6 +2209,30 @@ class AccountStatementGenerator(PDFGenerator):
                 'credit': ss.total_amount
             })
             period_credit += ss.total_amount
+            
+
+
+        # ----------------------------------------------------------------------
+        # CREDITS: Quick Sales (money IN)
+        # ----------------------------------------------------------------------
+        for qs in QuickSale.objects.filter(
+            payment_account=account,
+            date__gte=start_date,
+            date__lte=end_date
+        ):
+            transactions.append({
+            'date': qs.date,
+            'description': f'Quick Sale: {qs.quantity}x {qs.block_type.name}',
+            'reference': f'QS-{qs.pk:05d}',
+            'debit': None,
+            'credit': qs.total_amount
+        })
+        period_credit += qs.total_amount
+
+
+
+
+
         # ----------------------------------------------------------------------
         # DEBITS: Expenses paid (money OUT)
         # ----------------------------------------------------------------------
@@ -3319,3 +3343,182 @@ class LoanReportGenerator(PDFGenerator):
 
         doc.build(elements)
         return self._create_response(buffer, f'LoanReport_{start_date}_{end_date}.pdf')
+    
+
+
+
+class QuickSaleReceiptGenerator(PDFGenerator):
+    """Generate professional branded Receipt for Quick Sales on A5."""
+    
+    def generate(self, sale):
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A5,
+            topMargin=6*mm, bottomMargin=6*mm,
+            leftMargin=8*mm, rightMargin=8*mm
+        )
+        elements = []
+        
+        # Header
+        elements.extend(self._get_branded_header(width_override=doc.width))
+        
+        # Document Title
+        title_table = Table(
+            [['QUICK SALE RECEIPT']],
+            colWidths=[doc.width]
+        )
+        title_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), NAVY_BLUE),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 14),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(title_table)
+        elements.append(Spacer(1, 2*mm))
+        
+        # Receipt Info
+        receipt_data = [
+            ['Receipt No:', f'QS-{sale.pk:05d}'],
+            ['Date:', sale.date.strftime('%d/%m/%Y')],
+        ]
+        receipt_table = Table(receipt_data, colWidths=[70, 140])
+        receipt_table.setStyle(TableStyle([
+            *self._get_base_table_style(),
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+            ('TEXTCOLOR', (0, 0), (0, -1), NAVY_BLUE),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('FONTSIZE', (1, 0), (1, 0), 11),
+        ]))
+        elements.append(receipt_table)
+        elements.append(Spacer(1, 2*mm))
+        
+        # Buyer Info (if provided)
+        if sale.buyer_name or sale.buyer_phone:
+            elements.append(Paragraph("SOLD TO:", self.styles['SectionHeader']))
+            buyer_data = []
+            if sale.buyer_name:
+                buyer_data.append(['Name:', sale.buyer_name])
+            if sale.buyer_phone:
+                buyer_data.append(['Phone:', sale.buyer_phone])
+            buyer_table = Table(buyer_data, colWidths=[60, 150])
+            buyer_table.setStyle(TableStyle([
+                *self._get_base_table_style(),
+                ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BACKGROUND', (0, 0), (-1, -1), LIGHT_NAVY),
+                ('BOX', (0, 0), (-1, -1), 1, NAVY_BLUE),
+            ]))
+            elements.append(buyer_table)
+            elements.append(Spacer(1, 3*mm))
+        
+        # Sale Details
+        elements.append(Paragraph("SALE DETAILS:", self.styles['SectionHeader']))
+        
+        subtotal = sale.quantity * sale.unit_price
+        details_data = [
+            ['Block Type:', sale.block_type.name],
+            ['Quantity:', f'{sale.quantity} blocks'],
+            ['Unit Price:', self._format_currency(sale.unit_price)],
+            ['Subtotal:', self._format_currency(subtotal)],
+        ]
+        
+        if sale.logistics_discount > 0:
+            details_data.append(['Self-Pickup Discount:', f'-{self._format_currency(sale.logistics_discount)}'])
+        
+        details_table = Table(details_data, colWidths=[100, 110])
+        details_table.setStyle(TableStyle([
+            *self._get_base_table_style(),
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BACKGROUND', (0, 0), (-1, -1), LIGHT_NAVY),
+            ('BOX', (0, 0), (-1, -1), 1, NAVY_BLUE),
+        ]))
+        elements.append(details_table)
+        elements.append(Spacer(1, 3*mm))
+        
+        # Amount Box (Gold Highlighted)
+        elements.append(Paragraph("TOTAL PAID:", self.styles['SectionHeader']))
+        
+        amount_display = self._format_currency(sale.total_amount)
+        amount_words = self._amount_in_words(sale.total_amount)
+        
+        amount_data = [
+            [amount_display],
+            [f"({amount_words})"],
+        ]
+        amount_table = Table(amount_data, colWidths=[doc.width])
+        amount_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (0, 0), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (0, 0), 22),
+            ('FONTNAME', (0, 1), (0, 1), UNICODE_FONT),
+            ('FONTSIZE', (0, 1), (0, 1), 8),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('TEXTCOLOR', (0, 0), (0, 0), NAVY_BLUE),
+            ('TEXTCOLOR', (0, 1), (0, 1), colors.gray),
+            ('BACKGROUND', (0, 0), (-1, -1), LIGHT_GOLD),
+            ('BOX', (0, 0), (-1, -1), 2, GOLD),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(amount_table)
+        elements.append(Spacer(1, 2*mm))
+        
+        # Payment Details
+        elements.append(Paragraph("PAYMENT:", self.styles['SectionHeader']))
+        payment_data = [
+            ['Method:', sale.get_payment_method_display()],
+            ['Account:', sale.payment_account.bank_name],
+        ]
+        if sale.reference:
+            payment_data.append(['Reference:', sale.reference])
+        
+        payment_table = Table(payment_data, colWidths=[80, 130])
+        payment_table.setStyle(TableStyle([
+            *self._get_base_table_style(),
+            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ]))
+        elements.append(payment_table)
+        
+        # Remark
+        if sale.remark:
+            elements.append(Spacer(1, 2*mm))
+            elements.append(Paragraph(f"<b>Remark:</b> {sale.remark}", self.styles['SmallText']))
+        
+        # Pickup Authorization
+        if sale.pickup_authorized_by:
+            elements.append(Spacer(1, 2*mm))
+            elements.append(Paragraph(f"<b>Pickup Authorized By:</b> {sale.pickup_authorized_by}", self.styles['NormalText']))
+        
+        # Signature Section
+        elements.append(Spacer(1, 5*mm))
+        
+        recorded_by_text = "Processed By: " + (sale.recorded_by.get_full_name() or sale.recorded_by.username if sale.recorded_by else 'N/A')
+        
+        sig_table_data = [
+            ['', '', ''],
+            [recorded_by_text, '', 'Authorized Signatory & Stamp']
+        ]
+        
+        sig_table = Table(sig_table_data, colWidths=[doc.width*0.4, doc.width*0.2, doc.width*0.4])
+        sig_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 1), (-1, 1), UNICODE_FONT_BOLD),
+            ('FONTSIZE', (0, 1), (-1, 1), 8),
+            ('TEXTCOLOR', (0, 1), (-1, 1), NAVY_BLUE),
+            ('LINEABOVE', (0, 1), (0, 1), 1, colors.black),
+            ('LINEABOVE', (2, 1), (2, 1), 1, colors.black),
+            ('ALIGN', (0, 1), (0, 1), 'LEFT'),
+            ('ALIGN', (2, 1), (2, 1), 'RIGHT'),
+            ('TOPPADDING', (0, 1), (-1, 1), 4),
+            ('ROWHEIGHT', (0,0), (0,0), 15*mm),
+        ]))
+        elements.append(sig_table)
+        
+        # Footer
+        elements.extend(self._get_footer())
+        
+        doc.build(elements)
+        return self._create_response(buffer, f'QuickSale_QS-{sale.pk:05d}.pdf')

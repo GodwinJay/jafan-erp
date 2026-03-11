@@ -1,5 +1,4 @@
 # erp/services.py
-
 from decimal import Decimal
 from django.db.models import Sum, Q
 from django.utils import timezone
@@ -10,7 +9,7 @@ class BlockIndustryPLService:
     Accurate Profit & Loss calculation for Block Industry.
     Uses industry-standard accrual accounting with proper COGS calculation.
     
-    Revenue = Sales (from SupplyLog)
+    Revenue = Sales (from SupplyLog + QuickSale)
     COGS = Cost of Goods Sold (frozen WAC × qty at time of sale)
     Gross Profit = Revenue - COGS
     Operating Expenses = All expenses EXCLUDING raw materials (already in COGS)
@@ -51,14 +50,14 @@ class BlockIndustryPLService:
     
     def _calculate_revenue(self):
         """Calculate all revenue streams from actual sales"""
-        from .models import SupplyLog
+        from .models import SupplyLog, QuickSale
         
         supplies = SupplyLog.objects.filter(
             date__gte=self.start_date,
             date__lte=self.end_date
         )
         
-        # Block Sales Revenue
+        # Block Sales Revenue from SupplyLog
         sales_data = supplies.aggregate(
             block_sales=Sum('total_value'),
             total_quantity=Sum('quantity_delivered'),
@@ -69,28 +68,71 @@ class BlockIndustryPLService:
         logistics_income = sales_data['logistics'] or Decimal('0')
         total_quantity = sales_data['total_quantity'] or 0
         
-        # Breakdown by block type
-        by_block_type = supplies.values('block_type__name').annotate(
+        # Quick Sales Revenue (walk-in cash sales)
+        quick_sales = QuickSale.objects.filter(
+            date__gte=self.start_date,
+            date__lte=self.end_date
+        )
+        quick_sales_data = quick_sales.aggregate(
+            total=Sum('total_amount'),
+            quantity=Sum('quantity')
+        )
+        quick_sales_revenue = quick_sales_data['total'] or Decimal('0')
+        quick_sales_quantity = quick_sales_data['quantity'] or 0
+        
+        # Combined block sales
+        total_block_sales = block_sales + quick_sales_revenue
+        total_blocks_sold = total_quantity + quick_sales_quantity
+        
+        # Breakdown by block type (SupplyLog)
+        by_block_type = list(supplies.values('block_type__name').annotate(
             revenue=Sum('total_value'),
             quantity=Sum('quantity_delivered'),
             cogs=Sum('cost_of_goods_sold'),
             profit=Sum('gross_profit_on_sale')
-        ).order_by('-revenue')
+        ).order_by('-revenue'))
+        
+        # Add QuickSale breakdown
+        quick_by_block = quick_sales.values('block_type__name').annotate(
+            revenue=Sum('total_amount'),
+            quantity=Sum('quantity')
+        )
+        
+        # Merge QuickSale into by_block_type
+        for qs_item in quick_by_block:
+            found = False
+            for bt_item in by_block_type:
+                if bt_item['block_type__name'] == qs_item['block_type__name']:
+                    bt_item['revenue'] = (bt_item['revenue'] or Decimal('0')) + (qs_item['revenue'] or Decimal('0'))
+                    bt_item['quantity'] = (bt_item['quantity'] or 0) + (qs_item['quantity'] or 0)
+                    found = True
+                    break
+            if not found:
+                by_block_type.append({
+                    'block_type__name': qs_item['block_type__name'],
+                    'revenue': qs_item['revenue'],
+                    'quantity': qs_item['quantity'],
+                    'cogs': None,  # QuickSale doesn't track COGS directly
+                    'profit': None
+                })
         
         return {
-            'block_sales': block_sales,
+            'block_sales': total_block_sales,
+            'supply_log_sales': block_sales,
+            'quick_sales': quick_sales_revenue,
             'logistics_income': logistics_income,
-            'total': block_sales,  # Logistics goes to Transport, not Block P&L
-            'total_quantity_sold': total_quantity,
-            'by_block_type': list(by_block_type),
+            'total': total_block_sales,  # Logistics goes to Transport, not Block P&L
+            'total_quantity_sold': total_blocks_sold,
+            'by_block_type': by_block_type,
         }
     
     def _calculate_cogs(self):
         """
         Calculate Cost of Goods Sold.
         Uses the frozen cost_of_goods_sold from SupplyLog (WAC at time of sale).
+        For QuickSale, we estimate COGS using current WAC from BlockType.
         """
-        from .models import SupplyLog
+        from .models import SupplyLog, QuickSale
         
         supplies = SupplyLog.objects.filter(
             date__gte=self.start_date,
@@ -102,17 +144,33 @@ class BlockIndustryPLService:
             total_gross_profit=Sum('gross_profit_on_sale')
         )
         
-        total_cogs = cogs_data['total_cogs'] or Decimal('0')
+        supply_cogs = cogs_data['total_cogs'] or Decimal('0')
+        
+        # QuickSale COGS (estimate using current WAC)
+        quick_sales = QuickSale.objects.filter(
+            date__gte=self.start_date,
+            date__lte=self.end_date
+        ).select_related('block_type')
+        
+        quick_sale_cogs = Decimal('0')
+        for qs in quick_sales:
+            # Use WAC from block type
+            wac = qs.block_type.weighted_average_cost or Decimal('0')
+            quick_sale_cogs += wac * qs.quantity
+        
+        total_cogs = supply_cogs + quick_sale_cogs
         
         # Breakdown by block type
-        by_block_type = supplies.values('block_type__name').annotate(
+        by_block_type = list(supplies.values('block_type__name').annotate(
             quantity=Sum('quantity_delivered'),
             cogs=Sum('cost_of_goods_sold')
-        ).order_by('-cogs')
+        ).order_by('-cogs'))
         
         return {
             'total': total_cogs,
-            'by_block_type': list(by_block_type),
+            'supply_log_cogs': supply_cogs,
+            'quick_sale_cogs': quick_sale_cogs,
+            'by_block_type': by_block_type,
         }
     
     def _calculate_operating_expenses(self):
@@ -188,8 +246,8 @@ class CashFlowService:
     Cash Flow Statement - tracks actual money movement.
     Different from P&L which uses accrual accounting.
     
-    Cash In = Customer Payments + Transfers In
-    Cash Out = Procurements (paid) + Expenses (paid) + Vendor Payments + Team Payments + Refunds + Bank Charges + Transfers Out
+    Cash In = Customer Payments + Sand Sales + Quick Sales + Loan Repayments + Transfers In
+    Cash Out = Procurements (paid) + Expenses (paid) + Vendor Payments + Team Payments + Loans Given + Refunds + Bank Charges + Transfers Out
     """
     
     def __init__(self, start_date, end_date, account=None, business_unit=None):
@@ -204,8 +262,9 @@ class CashFlowService:
         
         # Gather all transaction types
         transactions.extend(self._get_customer_payments())
-        transactions.extend(self._get_sand_sales())      
-        transactions.extend(self._get_loan_repayments()) 
+        transactions.extend(self._get_sand_sales())
+        transactions.extend(self._get_quick_sales())       # NEW
+        transactions.extend(self._get_loan_repayments())
         transactions.extend(self._get_procurement_payments())
         transactions.extend(self._get_expense_payments())
         transactions.extend(self._get_vendor_payments())
@@ -269,7 +328,8 @@ class CashFlowService:
         """
         from .models import (
             Payment, ProcurementLog, Expense, VendorPayment,
-            CashRefund, BankCharge, AccountTransfer, TeamPayment, SandSale, Loan, LoanRepayment
+            CashRefund, BankCharge, AccountTransfer, TeamPayment, 
+            SandSale, Loan, LoanRepayment, QuickSale
         )
         
         # ============================================================
@@ -291,7 +351,8 @@ class CashFlowService:
         transfers_in = AccountTransfer.objects.filter(
             **transfers_in_filter
         ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
-
+        
+        # Sand Sales
         sand_filter = {'date__lt': self.start_date}
         if self.account:
             sand_filter['payment_account'] = self.account
@@ -299,7 +360,15 @@ class CashFlowService:
             **sand_filter
         ).aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
         
-        # Loan Repayments (before start_date)
+        # Quick Sales (NEW)
+        quick_filter = {'date__lt': self.start_date}
+        if self.account:
+            quick_filter['payment_account'] = self.account
+        quick_sales_in = QuickSale.objects.filter(
+            **quick_filter
+        ).aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
+        
+        # Loan Repayments
         loan_rep_filter = {'date__lt': self.start_date}
         if self.account:
             loan_rep_filter['payment_account'] = self.account
@@ -307,7 +376,7 @@ class CashFlowService:
             **loan_rep_filter
         ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
         
-        total_inflows = payments_in + transfers_in + sand_sales_in + loan_repayments_in
+        total_inflows = payments_in + transfers_in + sand_sales_in + quick_sales_in + loan_repayments_in
         
         # ============================================================
         # OUTFLOWS (before start_date)
@@ -339,7 +408,7 @@ class CashFlowService:
             **vp_filter
         ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
         
-        # Team Payments (NEW)
+        # Team Payments
         tp_filter = {'date__lt': self.start_date}
         if self.account:
             tp_filter['payment_account'] = self.account
@@ -364,8 +433,8 @@ class CashFlowService:
         bank_charges_out = BankCharge.objects.filter(
             **bc_filter
         ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
-
-        # Loans Given (before start_date)
+        
+        # Loans Given
         loans_filter = {'date__lt': self.start_date}
         if self.account:
             loans_filter['payment_account'] = self.account
@@ -385,7 +454,7 @@ class CashFlowService:
             procurements_out + 
             expenses_out + 
             vendor_payments_out + 
-            team_payments_out +  # NEW
+            team_payments_out +
             loans_given_out +
             refunds_out + 
             bank_charges_out + 
@@ -422,6 +491,92 @@ class CashFlowService:
             'account': p.payment_account.bank_name if p.payment_account else '',
             'created_at': p.created_at,
         } for p in payments]
+    
+    def _get_sand_sales(self):
+        """Sand sales = Cash IN"""
+        from .models import SandSale
+        
+        sales = SandSale.objects.filter(
+            date__gte=self.start_date,
+            date__lte=self.end_date
+        ).select_related('vehicle_type', 'payment_account')
+        
+        if self.account:
+            sales = sales.filter(payment_account=self.account)
+        
+        results = []
+        for s in sales:
+            desc = f"Sand Sale: {s.quantity}x {s.vehicle_type.name}"
+            if s.customer_name:
+                desc += f" ({s.customer_name})"
+            
+            results.append({
+                'date': s.date,
+                'type': 'Sand Sale',
+                'description': desc,
+                'category': 'Sand Sales',
+                'reference': f'SND-{s.pk:05d}',
+                'inflow': s.total_amount,
+                'outflow': None,
+                'account': s.payment_account.bank_name if s.payment_account else '',
+                'created_at': s.created_at,
+            })
+        return results
+    
+    def _get_quick_sales(self):
+        """Quick sales (walk-in cash) = Cash IN"""
+        from .models import QuickSale
+        
+        sales = QuickSale.objects.filter(
+            date__gte=self.start_date,
+            date__lte=self.end_date
+        ).select_related('block_type', 'payment_account')
+        
+        if self.account:
+            sales = sales.filter(payment_account=self.account)
+        
+        results = []
+        for s in sales:
+            desc = f"Quick Sale: {s.quantity}x {s.block_type.name}"
+            if s.buyer_name:
+                desc += f" ({s.buyer_name})"
+            
+            results.append({
+                'date': s.date,
+                'type': 'Quick Sale',
+                'description': desc,
+                'category': 'Quick Sales',
+                'reference': f'QS-{s.pk:05d}',
+                'inflow': s.total_amount,
+                'outflow': None,
+                'account': s.payment_account.bank_name if s.payment_account else '',
+                'created_at': s.created_at,
+            })
+        return results
+    
+    def _get_loan_repayments(self):
+        """Loan repayments received = Cash IN"""
+        from .models import LoanRepayment
+        
+        repayments = LoanRepayment.objects.filter(
+            date__gte=self.start_date,
+            date__lte=self.end_date
+        ).select_related('loan__debtor', 'payment_account')
+        
+        if self.account:
+            repayments = repayments.filter(payment_account=self.account)
+        
+        return [{
+            'date': r.date,
+            'type': 'Loan Repayment',
+            'description': f"Repayment from {r.loan.debtor.name}",
+            'category': 'Loan Repayments',
+            'reference': r.reference or f'LOAN-{r.loan.pk:05d}',
+            'inflow': r.amount,
+            'outflow': None,
+            'account': r.payment_account.bank_name if r.payment_account else '',
+            'created_at': r.created_at,
+        } for r in repayments]
     
     def _get_procurement_payments(self):
         """Paid procurements = Cash OUT"""
@@ -533,6 +688,30 @@ class CashFlowService:
             })
         return results
     
+    def _get_loans_given(self):
+        """Loans given to debtors = Cash OUT"""
+        from .models import Loan
+        
+        loans = Loan.objects.filter(
+            date__gte=self.start_date,
+            date__lte=self.end_date
+        ).select_related('debtor', 'payment_account')
+        
+        if self.account:
+            loans = loans.filter(payment_account=self.account)
+        
+        return [{
+            'date': loan.date,
+            'type': 'Loan Given',
+            'description': f"Loan to {loan.debtor.name}",
+            'category': 'Loans Given',
+            'reference': f'LOAN-{loan.pk:05d}',
+            'inflow': None,
+            'outflow': loan.amount,
+            'account': loan.payment_account.bank_name if loan.payment_account else '',
+            'created_at': loan.created_at,
+        } for loan in loans]
+    
     def _get_cash_refunds(self):
         """Refunds to customers = Cash OUT"""
         from .models import CashRefund
@@ -575,7 +754,6 @@ class CashFlowService:
             'date': c.date,
             'type': 'Bank Charge',
             'description': f"{c.charge_type}: {c.description or ''}",
-            #'description': f"{c.get_charge_type_display()}: {c.description or ''}",
             'category': 'Bank Charges',
             'reference': c.reference or '',
             'inflow': None,
@@ -614,85 +792,6 @@ class CashFlowService:
                 'created_at': t.created_at,
             })
         return results
-    
-    def _get_sand_sales(self):
-        """Sand sales = Cash IN"""
-        from .models import SandSale
-        
-        sales = SandSale.objects.filter(
-            date__gte=self.start_date,
-            date__lte=self.end_date
-        ).select_related('vehicle_type', 'payment_account')
-        
-        if self.account:
-            sales = sales.filter(payment_account=self.account)
-        
-        results = []
-        for s in sales:
-            desc = f"Sand Sale: {s.quantity}x {s.vehicle_type.name}"
-            if s.customer_name:
-                desc += f" ({s.customer_name})"
-            
-            results.append({
-                'date': s.date,
-                'type': 'Sand Sale',
-                'description': desc,
-                'category': 'Sand Sales',
-                'reference': f'SND-{s.pk:05d}',
-                'inflow': s.total_amount,
-                'outflow': None,
-                'account': s.payment_account.bank_name if s.payment_account else '',
-                'created_at': s.created_at,
-            })
-        return results
-
-    def _get_loan_repayments(self):
-        """Loan repayments received = Cash IN"""
-        from .models import LoanRepayment
-        
-        repayments = LoanRepayment.objects.filter(
-            date__gte=self.start_date,
-            date__lte=self.end_date
-        ).select_related('loan__debtor', 'payment_account')
-        
-        if self.account:
-            repayments = repayments.filter(payment_account=self.account)
-        
-        return [{
-            'date': r.date,
-            'type': 'Loan Repayment',
-            'description': f"Repayment from {r.loan.debtor.name}",
-            'category': 'Loan Repayments',
-            'reference': r.reference or f'LOAN-{r.loan.pk:05d}',
-            'inflow': r.amount,
-            'outflow': None,
-            'account': r.payment_account.bank_name if r.payment_account else '',
-            'created_at': r.created_at,
-        } for r in repayments]
-    
-    def _get_loans_given(self):
-        """Loans given to debtors = Cash OUT"""
-        from .models import Loan
-        
-        loans = Loan.objects.filter(
-            date__gte=self.start_date,
-            date__lte=self.end_date
-        ).select_related('debtor', 'payment_account')
-        
-        if self.account:
-            loans = loans.filter(payment_account=self.account)
-        
-        return [{
-            'date': loan.date,
-            'type': 'Loan Given',
-            'description': f"Loan to {loan.debtor.name}",
-            'category': 'Loans Given',
-            'reference': f'LOAN-{loan.pk:05d}',
-            'inflow': None,
-            'outflow': loan.amount,
-            'account': loan.payment_account.bank_name if loan.payment_account else '',
-            'created_at': loan.created_at,
-        } for loan in loans]
     
     def _get_transfers_out(self):
         """Transfers sent = Cash OUT"""

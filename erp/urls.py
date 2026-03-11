@@ -78,4 +78,7 @@ urlpatterns = [
     path('loans/report/', views.loan_report_view, name='loan_report'),
     path('export/loans/pdf/', views.export_loans_pdf, name='export_loans_pdf'),
     path('export/loans/excel/', views.export_loans_excel, name='export_loans_excel'),
+
+    # Quick Sale Receipt
+    path('pdf/quick-sale-receipt/<int:sale_id>/', views.generate_quick_sale_receipt, name='generate_quick_sale_receipt'),
 ]

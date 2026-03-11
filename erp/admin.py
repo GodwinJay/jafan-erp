@@ -1729,7 +1729,7 @@ class LoanRepaymentAdmin(RestrictedAdmin):
 
 @admin.register(QuickSale)
 class QuickSaleAdmin(RestrictedAdmin):
-    list_display = ['quick_sale_id', 'date', 'block_type', 'quantity', 'total_amount_display', 'payment_method', 'buyer_name', 'recorded_by']
+    list_display = ['quick_sale_id', 'date', 'block_type', 'quantity', 'total_amount_display', 'payment_method', 'buyer_name', 'recorded_by', 'receipt_link']
     list_filter = ['date', 'block_type', 'payment_method', 'payment_account']
     search_fields = ['buyer_name', 'buyer_phone', 'reference']
     date_hierarchy = 'date'
@@ -1738,7 +1738,7 @@ class QuickSaleAdmin(RestrictedAdmin):
     
     fieldsets = (
         ('Sale Details', {
-            'fields': ('date', 'block_type', 'quantity', 'unit_price', 'total_amount')
+            'fields': ('date', 'block_type', 'quantity', 'unit_price', 'logistics_discount', 'total_amount')
         }),
         ('Payment', {
             'fields': ('payment_account', 'payment_method', 'reference')
@@ -1765,12 +1765,12 @@ class QuickSaleAdmin(RestrictedAdmin):
         return f"₦{obj.total_amount:,.2f}"
     total_amount_display.short_description = "Total"
     
+    def receipt_link(self, obj):
+        url = reverse('generate_quick_sale_receipt', args=[obj.pk])
+        return format_html('<a href="{}" target="_blank">📄 Receipt</a>', url)
+    receipt_link.short_description = "Receipt"
+    
     def save_model(self, request, obj, form, change):
         if not change:
             obj.recorded_by = request.user
         super().save_model(request, obj, form, change)
-    
-    def get_changeform_initial_data(self, request):
-        initial = super().get_changeform_initial_data(request)
-        # Auto-fill unit price from block type if selected
-        return initial
