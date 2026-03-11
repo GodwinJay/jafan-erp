@@ -18,7 +18,7 @@ from .models import (
     Payment, SalesOrder, SalesOrderItem, SupplyLog,
     ReturnLog, CashRefund, BreakageLog, FuelLog, MaintenanceLog,
     TransportAsset, TransportRevenue, BankCharge, AccountTransfer,
-    DailyCashClose, VendorPayment, TeamPayment, SandVehicleType, SandSale, Debtor, Loan, LoanRepayment
+    DailyCashClose, VendorPayment, TeamPayment, SandVehicleType, SandSale, Debtor, Loan, LoanRepayment, QuickSale
 )
 
 
