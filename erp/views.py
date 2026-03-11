@@ -38,7 +38,7 @@ from .pdf_generator import (
     SandSaleReceiptGenerator,
     LoanStatementGenerator,
     LoanReportGenerator,
-    QuickSaleReceiptGenerator
+    QuickSaleReceiptGenerator,
 
 )
 
