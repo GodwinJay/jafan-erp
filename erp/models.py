@@ -1801,7 +1801,7 @@ class QuickSale(models.Model):
     )
     logistics_discount = models.DecimalField(
         max_digits=10, decimal_places=2, default=0,
-        help_text="Discount for self-pickup (no delivery)"
+        help_text="Discount per block for self-pickup (e.g., ₦50/block)"
     )
     total_amount = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
     
@@ -1849,7 +1849,8 @@ class QuickSale(models.Model):
         self.unit_price = self.block_type.selling_price
         
         # Calculate total (with discount)
-        self.total_amount = self.unit_price - (self.logistics_discount / self.quantity)
+        self.total_amount = self.quantity * (self.unit_price - self.logistics_discount)
+
         
         is_new = self.pk is None
         super().save(*args, **kwargs)
