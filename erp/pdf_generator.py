@@ -3354,7 +3354,7 @@ class QuickSaleReceiptGenerator(PDFGenerator):
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
             buffer, pagesize=A5,
-            topMargin=6*mm, bottomMargin=6*mm,
+            topMargin=3*mm, bottomMargin=3*mm,
             leftMargin=8*mm, rightMargin=8*mm
         )
         elements = []
@@ -3426,9 +3426,9 @@ class QuickSaleReceiptGenerator(PDFGenerator):
         ]
         
         if sale.logistics_discount > 0:
-            details_data.append(['Self-Pickup Discount:', f'-{self._format_currency(sale.logistics_discount)}'])
+            details_data.append(['Self-Pickup Discount:', f'-{self._format_currency(sale.logistics_discount)}/block'])
         
-        details_table = Table(details_data, colWidths=[100, 110])
+        details_table = Table(details_data, colWidths=[115, 95])
         details_table.setStyle(TableStyle([
             *self._get_base_table_style(),
             ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
