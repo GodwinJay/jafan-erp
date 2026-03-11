@@ -37,8 +37,8 @@ from .pdf_generator import (
     CashFlowPDFGenerator,
     SandSaleReceiptGenerator,
     LoanStatementGenerator,
-    LoanReportGenerator
-    
+    LoanReportGenerator,
+    QuickSaleReceiptGenerator
 
 )
 
@@ -785,9 +785,17 @@ def generate_account_statement(request, account_id):
 
 @staff_member_required
 def generate_quick_sale_receipt(request, sale_id):
-    from .models import QuickSale
-    sale = get_object_or_404(QuickSale, pk=sale_id)
-    return QuickSaleReceiptGenerator().generate(sale)
+    try:
+        sale = get_object_or_404(QuickSale, pk=sale_id)
+        return QuickSaleReceiptGenerator().generate(sale)
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        return HttpResponse(
+            f"<h2>Error generating PDF:</h2><pre>{error_details}</pre>",
+            content_type='text/html',
+            status=500
+        )
 
 
 # Add these to views.py
