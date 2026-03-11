@@ -106,7 +106,7 @@ class RestrictedAdmin(ModelAdmin):
     # Common sales models everyone can access
     COMMON_SALES_MODELS = [
         'customer', 'site', 'salesorder', 'salesorderitem', 
-        'supplylog', 'payment', 'blocktype',
+        'supplylog', 'payment', 'blocktype', 'quicksale'
     ]
     
     # Define which models each role can access (in addition to common sales)
