@@ -1849,7 +1849,7 @@ class QuickSale(models.Model):
         self.unit_price = self.block_type.selling_price
         
         # Calculate total (with discount)
-        self.total_amount = (self.quantity * self.unit_price) - self.logistics_discount
+        self.total_amount = self.unit_price - (self.logistics_discount / self.quantity)
         
         is_new = self.pk is None
         super().save(*args, **kwargs)
