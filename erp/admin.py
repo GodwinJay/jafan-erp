@@ -1729,12 +1729,12 @@ class LoanRepaymentAdmin(RestrictedAdmin):
 
 @admin.register(QuickSale)
 class QuickSaleAdmin(RestrictedAdmin):
-    list_display = ['quick_sale_id', 'date', 'block_type', 'quantity', 'total_amount_display', 'payment_method', 'buyer_name', 'recorded_by', 'receipt_link']
+    list_display = ['quick_sale_id', 'date', 'block_type', 'quantity', 'unit_price_display', 'total_amount_display', 'payment_method', 'buyer_name', 'recorded_by', 'receipt_link']
     list_filter = ['date', 'block_type', 'payment_method', 'payment_account']
     search_fields = ['buyer_name', 'buyer_phone', 'reference']
     date_hierarchy = 'date'
     autocomplete_fields = ['block_type', 'payment_account']
-    readonly_fields = ['total_amount', 'recorded_by', 'created_at']
+    readonly_fields = ['unit_price', 'total_amount', 'recorded_by', 'created_at']
     
     fieldsets = (
         ('Sale Details', {
@@ -1760,6 +1760,10 @@ class QuickSaleAdmin(RestrictedAdmin):
     def quick_sale_id(self, obj):
         return f"QS-{obj.pk:05d}"
     quick_sale_id.short_description = "Sale ID"
+    
+    def unit_price_display(self, obj):
+        return f"₦{obj.unit_price:,.2f}"
+    unit_price_display.short_description = "Unit Price"
     
     def total_amount_display(self, obj):
         return f"₦{obj.total_amount:,.2f}"
