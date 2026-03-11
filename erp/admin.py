@@ -1725,3 +1725,52 @@ class LoanRepaymentAdmin(RestrictedAdmin):
         if not obj.recorded_by:
             obj.recorded_by = request.user
         super().save_model(request, obj, form, change)
+
+
+@admin.register(QuickSale)
+class QuickSaleAdmin(RestrictedAdmin):
+    list_display = ['quick_sale_id', 'date', 'block_type', 'quantity', 'total_amount_display', 'payment_method', 'buyer_name', 'recorded_by']
+    list_filter = ['date', 'block_type', 'payment_method', 'payment_account']
+    search_fields = ['buyer_name', 'buyer_phone', 'reference']
+    date_hierarchy = 'date'
+    autocomplete_fields = ['block_type', 'payment_account']
+    readonly_fields = ['total_amount', 'recorded_by', 'created_at']
+    
+    fieldsets = (
+        ('Sale Details', {
+            'fields': ('date', 'block_type', 'quantity', 'unit_price', 'total_amount')
+        }),
+        ('Payment', {
+            'fields': ('payment_account', 'payment_method', 'reference')
+        }),
+        ('Buyer Info (Optional)', {
+            'fields': ('buyer_name', 'buyer_phone', 'pickup_authorized_by'),
+            'classes': ('collapse',)
+        }),
+        ('Notes', {
+            'fields': ('remark',),
+            'classes': ('collapse',)
+        }),
+        ('System', {
+            'fields': ('recorded_by', 'created_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def quick_sale_id(self, obj):
+        return f"QS-{obj.pk:05d}"
+    quick_sale_id.short_description = "Sale ID"
+    
+    def total_amount_display(self, obj):
+        return f"₦{obj.total_amount:,.2f}"
+    total_amount_display.short_description = "Total"
+    
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.recorded_by = request.user
+        super().save_model(request, obj, form, change)
+    
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        # Auto-fill unit price from block type if selected
+        return initial
