@@ -1783,6 +1783,86 @@ class SandSale(models.Model):
         super().delete(*args, **kwargs)
 
 
+
+class QuickSale(models.Model):
+    """
+    Quick cash-and-carry sales for walk-in customers.
+    No customer account needed - just record the sale and payment.
+    """
+    date = models.DateField(default=timezone.now)
+    
+    # What was sold
+    block_type = models.ForeignKey(BlockType, on_delete=models.PROTECT)
+    quantity = models.PositiveIntegerField()
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
+    
+    # Payment (always paid upfront)
+    payment_account = models.ForeignKey(
+        PaymentAccount, on_delete=models.PROTECT,
+        limit_choices_to={'is_active': True}
+    )
+    payment_method = models.CharField(
+        max_length=20,
+        choices=[
+            ('CASH', 'Cash'),
+            ('TRANSFER', 'Bank Transfer'),
+            ('POS', 'POS'),
+        ],
+        default='CASH'
+    )
+    reference = models.CharField(max_length=100, blank=True, help_text="Transfer reference or POS receipt")
+    
+    # Optional buyer info (for follow-up if needed)
+    buyer_name = models.CharField(max_length=100, blank=True, help_text="Optional - buyer's name")
+    buyer_phone = models.CharField(max_length=24, blank=True, help_text="Optional - buyer's phone")
+    
+    # Pickup
+    pickup_authorized_by = models.CharField(max_length=100, blank=True)
+    
+    # Tracking
+    recorded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='quick_sales_recorded'
+    )
+    remark = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-date', '-created_at']
+        verbose_name = "Quick Sale"
+        verbose_name_plural = "Quick Sales"
+    
+    def __str__(self):
+        return f"QS-{self.pk:05d} | {self.quantity} {self.block_type.name} | ₦{self.total_amount:,.0f}"
+    
+    def save(self, *args, **kwargs):
+        # Calculate total
+        self.total_amount = self.quantity * self.unit_price
+        
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        
+        if is_new:
+            # Deduct stock
+            self.block_type.current_stock -= self.quantity
+            self.block_type.save(update_fields=['current_stock'])
+            
+            # Credit payment account
+            self.payment_account.current_balance += self.total_amount
+            self.payment_account.save(update_fields=['current_balance'])
+    
+    def delete(self, *args, **kwargs):
+        # Restore stock
+        self.block_type.current_stock += self.quantity
+        self.block_type.save(update_fields=['current_stock'])
+        
+        # Debit payment account
+        self.payment_account.current_balance -= self.total_amount
+        self.payment_account.save(update_fields=['current_balance'])
+        
+        super().delete(*args, **kwargs)
+
 # ==============================================================================
 # 9. Loans & Debtors
 # ==============================================================================
@@ -1993,85 +2073,6 @@ class LoanRepayment(models.Model):
         loan.update_repayment_status()
 
 
-
-class QuickSale(models.Model):
-    """
-    Quick cash-and-carry sales for walk-in customers.
-    No customer account needed - just record the sale and payment.
-    """
-    date = models.DateField(default=timezone.now)
-    
-    # What was sold
-    block_type = models.ForeignKey(BlockType, on_delete=models.PROTECT)
-    quantity = models.PositiveIntegerField()
-    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
-    total_amount = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
-    
-    # Payment (always paid upfront)
-    payment_account = models.ForeignKey(
-        PaymentAccount, on_delete=models.PROTECT,
-        limit_choices_to={'is_active': True}
-    )
-    payment_method = models.CharField(
-        max_length=20,
-        choices=[
-            ('CASH', 'Cash'),
-            ('TRANSFER', 'Bank Transfer'),
-            ('POS', 'POS'),
-        ],
-        default='CASH'
-    )
-    reference = models.CharField(max_length=100, blank=True, help_text="Transfer reference or POS receipt")
-    
-    # Optional buyer info (for follow-up if needed)
-    buyer_name = models.CharField(max_length=100, blank=True, help_text="Optional - buyer's name")
-    buyer_phone = models.CharField(max_length=24, blank=True, help_text="Optional - buyer's phone")
-    
-    # Pickup
-    pickup_authorized_by = models.CharField(max_length=100, blank=True)
-    
-    # Tracking
-    recorded_by = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='quick_sales_recorded'
-    )
-    remark = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    class Meta:
-        ordering = ['-date', '-created_at']
-        verbose_name = "Quick Sale"
-        verbose_name_plural = "Quick Sales"
-    
-    def __str__(self):
-        return f"QS-{self.pk:05d} | {self.quantity} {self.block_type.name} | ₦{self.total_amount:,.0f}"
-    
-    def save(self, *args, **kwargs):
-        # Calculate total
-        self.total_amount = self.quantity * self.unit_price
-        
-        is_new = self.pk is None
-        super().save(*args, **kwargs)
-        
-        if is_new:
-            # Deduct stock
-            self.block_type.current_stock -= self.quantity
-            self.block_type.save(update_fields=['current_stock'])
-            
-            # Credit payment account
-            self.payment_account.current_balance += self.total_amount
-            self.payment_account.save(update_fields=['current_balance'])
-    
-    def delete(self, *args, **kwargs):
-        # Restore stock
-        self.block_type.current_stock += self.quantity
-        self.block_type.save(update_fields=['current_stock'])
-        
-        # Debit payment account
-        self.payment_account.current_balance -= self.total_amount
-        self.payment_account.save(update_fields=['current_balance'])
-        
-        super().delete(*args, **kwargs)
 
 auditlog.register(User)
 auditlog.register(Material)
