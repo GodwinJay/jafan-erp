@@ -145,7 +145,8 @@ class PaymentAccount(models.Model):
     ]
     BUSINESS_UNIT_CHOICES = [
         ('BLOCK', 'Jafan Block Industry'),
-        ('TRANSPORT', 'Jafan Transport'),
+        ('TRANSPORT', 'Jafan Transport',),
+        ('SAND', 'JAFAN SAND')
     ]
     
     bank_name = models.CharField(max_length=50)
