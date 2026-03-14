@@ -1,54 +1,52 @@
-(function ($) {
+window.addEventListener('load', function () {
     'use strict';
 
-    $(document).ready(function () {
-        var customerField = $('#id_customer');
-        var siteField = $('#id_site');
+    var $ = django.jQuery;
+    if (!$) return;
 
-        if (customerField.length === 0) return;
+    var customerField = $('#id_customer');
+    var siteField = $('#id_site');
 
-        function filterSites(preserveSiteId) {
-            var customerId = customerField.val();
+    if (customerField.length === 0) return;
 
-            if (!customerId) {
-                siteField.html('<option value="">---------</option>');
-                siteField.trigger('change.select2');
-                return;
-            }
+    function filterSites(preserveSiteId) {
+        var customerId = customerField.val();
 
-            $.ajax({
-                url: '/erp/ajax/customer-sites/',
-                data: { 'customer_id': customerId },
-                dataType: 'json',
-                success: function (data) {
-                    var options = '<option value="">---------</option>';
-                    $.each(data, function (index, site) {
-                        options += '<option value="' + site.id + '">' + site.name + '</option>';
-                    });
-                    siteField.html(options);
+        if (!customerId) {
+            siteField.html('<option value="">---------</option>');
+            siteField.trigger('change.select2');
+            return;
+        }
 
-                    // Restore site selection after options are built (guaranteed)
-                    if (preserveSiteId) {
-                        siteField.val(preserveSiteId);
-                    }
+        $.ajax({
+            url: '/erp/ajax/customer-sites/',
+            data: { 'customer_id': customerId },
+            dataType: 'json',
+            success: function (data) {
+                var options = '<option value="">---------</option>';
+                $.each(data, function (index, site) {
+                    options += '<option value="' + site.id + '">' + site.name + '</option>';
+                });
+                siteField.html(options);
 
-                    siteField.trigger('change.select2');
-                },
-                error: function (xhr, status, error) {
-                    console.error('Error fetching sites:', error);
+                if (preserveSiteId) {
+                    siteField.val(preserveSiteId);
                 }
-            });
-        }
 
-        // Always bind both — covers both plain select and Select2
-        customerField.on('change select2:select select2:clear', function () {
-            filterSites(null);
+                siteField.trigger('change.select2');
+            },
+            error: function (xhr, status, error) {
+                console.error('Error fetching sites:', error);
+            }
         });
+    }
 
-        // Edit mode — preserve current site selection
-        if (customerField.val()) {
-            var currentSite = siteField.val();
-            filterSites(currentSite);
-        }
+    customerField.on('change select2:select select2:clear', function () {
+        filterSites(null);
     });
-})(django.jQuery);
+
+    if (customerField.val()) {
+        var currentSite = siteField.val();
+        filterSites(currentSite);
+    }
+});
