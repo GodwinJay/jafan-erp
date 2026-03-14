@@ -1646,7 +1646,7 @@ class ProformaInvoiceGenerator(PDFGenerator):
         # =========================================================
         elements.append(Paragraph("PAYMENT INSTRUCTIONS:", self.styles['SectionHeader']))
 
-        accounts = PaymentAccount.objects.filter(is_active=True)
+        accounts = PaymentAccount.objects.filter(is_active=True, business_unit='BLOCK')
         payment_data = [['Bank', 'Account Name', 'Account Number']]
         for acc in accounts:
             payment_data.append([acc.bank_name, acc.account_name, acc.account_number])
