@@ -645,15 +645,22 @@ class SalesOrderAdmin(RestrictedAdmin):
         ("Validity", {"fields": ("valid_until",)}),
         ("Notes", {"fields": ("notes",)}),
     )
-    
+
+    class Media:
+        js = ('/static/admin/js/sales_order_dropdowns.js',)
+
+    def get_form(self, request, obj=None, **kwargs):
+        self.obj_instance = obj
+        return super().get_form(request, obj, **kwargs)
+
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "site":
-            if request.resolver_match.kwargs.get('object_id'):
-                try:
-                    order = SalesOrder.objects.get(pk=request.resolver_match.kwargs['object_id'])
-                    kwargs["queryset"] = Site.objects.filter(customer=order.customer)
-                except SalesOrder.DoesNotExist:
-                    pass
+            if request.method == 'POST' and request.POST.get('customer'):
+                kwargs["queryset"] = Site.objects.filter(customer_id=request.POST.get('customer'))
+            elif hasattr(self, 'obj_instance') and self.obj_instance and self.obj_instance.customer_id:
+                kwargs["queryset"] = Site.objects.filter(customer_id=self.obj_instance.customer_id)
+            else:
+                kwargs["queryset"] = Site.objects.none()
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
     
     def pdf_actions(self, obj):
