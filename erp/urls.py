@@ -81,4 +81,6 @@ urlpatterns = [
 
     # Quick Sale Receipt
     path('pdf/quick-sale-receipt/<int:sale_id>/', views.generate_quick_sale_receipt, name='generate_quick_sale_receipt'),
+
+    path('ajax/customer-sites/', views.get_customer_sites, name='ajax_customer_sites'),
 ]
