@@ -716,7 +716,7 @@ class PaymentAdmin(RestrictedAdmin):
     autocomplete_fields = ["customer", "payment_account"]
 
     class Media:
-        js = ('/static/admin/js/chained_dropdowns.js',)
+        js = ('/static/admin/js/payment_dropdowns.js',)
 
     fieldsets = (
         ("Payment Info", {"fields": ("date", "customer", "amount")}),
