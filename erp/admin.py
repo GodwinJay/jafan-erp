@@ -713,14 +713,31 @@ class PaymentAdmin(RestrictedAdmin):
     search_fields = ["customer__name", "reference", "remark"]
     date_hierarchy = "date"
     ordering = ["-date", "-created_at"]
-    autocomplete_fields = ["customer", "payment_account", "sales_order"] 
-    
+    autocomplete_fields = ["customer", "payment_account"]
+
+    class Media:
+        js = ('/static/admin/js/chained_dropdowns.js',)
+
     fieldsets = (
         ("Payment Info", {"fields": ("date", "customer", "amount")}),
         ("Link to Order (Optional)", {"fields": ("sales_order",)}),
         ("Details", {"fields": ("method", "payment_account", "reference", "remark")}),
     )
-    
+
+    def get_form(self, request, obj=None, **kwargs):
+        self.obj_instance = obj
+        return super().get_form(request, obj, **kwargs)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "sales_order":
+            if request.method == 'POST' and request.POST.get('customer'):
+                kwargs["queryset"] = SalesOrder.objects.filter(customer_id=request.POST.get('customer'))
+            elif hasattr(self, 'obj_instance') and self.obj_instance and self.obj_instance.customer_id:
+                kwargs["queryset"] = SalesOrder.objects.filter(customer_id=self.obj_instance.customer_id)
+            else:
+                kwargs["queryset"] = SalesOrder.objects.none()
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
     def pdf_actions(self, obj):
         receipt_url = reverse('generate_receipt', args=[obj.pk])
         return format_html(
