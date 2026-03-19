@@ -1789,6 +1789,7 @@ class QuickSale(models.Model):
     """
     Quick cash-and-carry sales for walk-in customers.
     No customer account needed - just record the sale and payment.
+    Supports split payments (e.g., part cash, part POS).
     """
     date = models.DateField(default=timezone.now)
     
@@ -1797,7 +1798,7 @@ class QuickSale(models.Model):
     quantity = models.PositiveIntegerField()
     unit_price = models.DecimalField(
         max_digits=10, decimal_places=2, 
-        editable=False,  # Auto-filled from BlockType
+        editable=False,
         help_text="Auto-filled from block type selling price"
     )
     logistics_discount = models.DecimalField(
@@ -1806,10 +1807,12 @@ class QuickSale(models.Model):
     )
     total_amount = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
     
-    # Payment (always paid upfront)
+    # Primary Payment (required)
     payment_account = models.ForeignKey(
         PaymentAccount, on_delete=models.PROTECT,
-        limit_choices_to={'is_active': True}
+        limit_choices_to={'is_active': True},
+        related_name='quick_sales_primary',
+        verbose_name="Primary Account"
     )
     payment_method = models.CharField(
         max_length=20,
@@ -1818,11 +1821,37 @@ class QuickSale(models.Model):
             ('TRANSFER', 'Bank Transfer'),
             ('POS', 'POS'),
         ],
-        default='CASH'
+        default='CASH',
+        verbose_name="Primary Method"
     )
     reference = models.CharField(max_length=100, blank=True, help_text="Transfer reference or POS receipt")
     
-    # Optional buyer info (for follow-up if needed)
+    # Secondary Payment (optional - for split payments)
+    secondary_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        help_text="Amount paid via secondary method (leave 0 if single payment)"
+    )
+    secondary_account = models.ForeignKey(
+        PaymentAccount, on_delete=models.PROTECT,
+        null=True, blank=True,
+        limit_choices_to={'is_active': True},
+        related_name='quick_sales_secondary',
+        verbose_name="Secondary Account"
+    )
+    secondary_method = models.CharField(
+        max_length=20,
+        choices=[
+            ('', '---------'),
+            ('CASH', 'Cash'),
+            ('TRANSFER', 'Bank Transfer'),
+            ('POS', 'POS'),
+        ],
+        blank=True,
+        verbose_name="Secondary Method"
+    )
+    secondary_reference = models.CharField(max_length=100, blank=True, help_text="Secondary payment reference")
+    
+    # Optional buyer info
     buyer_name = models.CharField(max_length=100, blank=True, help_text="Optional - buyer's name")
     buyer_phone = models.CharField(max_length=24, blank=True, help_text="Optional - buyer's phone")
     
@@ -1845,13 +1874,49 @@ class QuickSale(models.Model):
     def __str__(self):
         return f"QS-{self.pk:05d} | {self.quantity} {self.block_type.name} | ₦{self.total_amount:,.0f}"
     
+    @property
+    def primary_amount(self):
+        """Amount paid via primary method."""
+        return self.total_amount - (self.secondary_amount or Decimal('0'))
+    
+    @property
+    def is_split_payment(self):
+        """Check if this is a split payment."""
+        return self.secondary_amount > 0 and self.secondary_account is not None
+    
+    def clean(self):
+        """Validate split payment fields."""
+        from django.core.exceptions import ValidationError
+        
+        # Calculate expected total for validation
+        if self.block_type_id and self.quantity:
+            expected_total = self.quantity * (self.block_type.selling_price - (self.logistics_discount or Decimal('0')))
+        else:
+            expected_total = Decimal('0')
+        
+        # Validate secondary_amount is not negative
+        if self.secondary_amount and self.secondary_amount < 0:
+            raise ValidationError({'secondary_amount': 'Secondary amount cannot be negative'})
+        
+        # Validate secondary_amount is not >= total
+        if self.secondary_amount and expected_total > 0:
+            if self.secondary_amount >= expected_total:
+                raise ValidationError({'secondary_amount': 'Secondary amount must be less than total amount'})
+        
+        # Validate secondary payment fields are complete
+        if self.secondary_amount and self.secondary_amount > 0:
+            if not self.secondary_account:
+                raise ValidationError({'secondary_account': 'Secondary account required when secondary amount > 0'})
+            if not self.secondary_method:
+                raise ValidationError({'secondary_method': 'Secondary method required when secondary amount > 0'})
+    
+    @transaction.atomic
     def save(self, *args, **kwargs):
         # Auto-fill unit price from block type
         self.unit_price = self.block_type.selling_price
         
-        # Calculate total (with discount)
-        self.total_amount = self.quantity * (self.unit_price - self.logistics_discount)
-
+        # Calculate total (with discount per block)
+        self.total_amount = self.quantity * (self.unit_price - (self.logistics_discount or Decimal('0')))
         
         is_new = self.pk is None
         super().save(*args, **kwargs)
@@ -1861,21 +1926,33 @@ class QuickSale(models.Model):
             self.block_type.current_stock -= self.quantity
             self.block_type.save(update_fields=['current_stock'])
             
-            # Credit payment account
-            self.payment_account.current_balance += self.total_amount
+            # Credit primary payment account
+            primary_amt = self.primary_amount
+            self.payment_account.current_balance += primary_amt
             self.payment_account.save(update_fields=['current_balance'])
+            
+            # Credit secondary payment account (if split payment)
+            if self.is_split_payment:
+                self.secondary_account.current_balance += self.secondary_amount
+                self.secondary_account.save(update_fields=['current_balance'])
     
+    @transaction.atomic
     def delete(self, *args, **kwargs):
         # Restore stock
         self.block_type.current_stock += self.quantity
         self.block_type.save(update_fields=['current_stock'])
         
-        # Debit payment account
-        self.payment_account.current_balance -= self.total_amount
+        # Debit primary payment account
+        primary_amt = self.primary_amount
+        self.payment_account.current_balance -= primary_amt
         self.payment_account.save(update_fields=['current_balance'])
         
+        # Debit secondary payment account (if split payment)
+        if self.is_split_payment:
+            self.secondary_account.current_balance -= self.secondary_amount
+            self.secondary_account.save(update_fields=['current_balance'])
+        
         super().delete(*args, **kwargs)
-
 # ==============================================================================
 # 9. Loans & Debtors
 # ==============================================================================

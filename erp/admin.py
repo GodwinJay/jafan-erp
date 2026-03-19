@@ -1753,19 +1753,24 @@ class LoanRepaymentAdmin(RestrictedAdmin):
 
 @admin.register(QuickSale)
 class QuickSaleAdmin(RestrictedAdmin):
-    list_display = ['quick_sale_id', 'date', 'block_type', 'quantity', 'unit_price_display', 'total_amount_display', 'payment_method', 'buyer_name', 'recorded_by', 'receipt_link']
+    list_display = ['quick_sale_id', 'date', 'block_type', 'quantity', 'unit_price_display', 'total_amount_display', 'payment_summary', 'buyer_name', 'recorded_by', 'receipt_link']
     list_filter = ['date', 'block_type', 'payment_method', 'payment_account']
     search_fields = ['buyer_name', 'buyer_phone', 'reference']
     date_hierarchy = 'date'
-    autocomplete_fields = ['block_type', 'payment_account']
-    readonly_fields = ['unit_price', 'total_amount', 'recorded_by', 'created_at']
+    autocomplete_fields = ['block_type', 'payment_account', 'secondary_account']
+    readonly_fields = ['unit_price', 'total_amount', 'primary_amount_display', 'recorded_by', 'created_at']
     
     fieldsets = (
         ('Sale Details', {
             'fields': ('date', 'block_type', 'quantity', 'unit_price', 'logistics_discount', 'total_amount')
         }),
-        ('Payment', {
-            'fields': ('payment_account', 'payment_method', 'reference')
+        ('Primary Payment', {
+            'fields': ('payment_account', 'payment_method', 'reference', 'primary_amount_display')
+        }),
+        ('Split Payment (Optional)', {
+            'fields': ('secondary_amount', 'secondary_account', 'secondary_method', 'secondary_reference'),
+            'classes': ('collapse',),
+            'description': 'Use this section if customer pays with two methods (e.g., part Cash, part POS)'
         }),
         ('Buyer Info (Optional)', {
             'fields': ('buyer_name', 'buyer_phone', 'pickup_authorized_by'),
@@ -1781,6 +1786,19 @@ class QuickSaleAdmin(RestrictedAdmin):
         }),
     )
     
+    def get_readonly_fields(self, request, obj=None):
+        """Lock financial fields after creation to prevent balance corruption."""
+        readonly = list(super().get_readonly_fields(request, obj))
+        
+        if obj:  # Editing existing record
+            readonly.extend([
+                'block_type', 'quantity', 'logistics_discount',
+                'payment_account', 'payment_method',
+                'secondary_amount', 'secondary_account', 'secondary_method'
+            ])
+        
+        return readonly
+    
     def quick_sale_id(self, obj):
         return f"QS-{obj.pk:05d}"
     quick_sale_id.short_description = "Sale ID"
@@ -1792,6 +1810,18 @@ class QuickSaleAdmin(RestrictedAdmin):
     def total_amount_display(self, obj):
         return f"₦{obj.total_amount:,.2f}"
     total_amount_display.short_description = "Total"
+    
+    def primary_amount_display(self, obj):
+        if obj.pk:
+            return f"₦{obj.primary_amount:,.2f}"
+        return "Calculated on save"
+    primary_amount_display.short_description = "Primary Amount"
+    
+    def payment_summary(self, obj):
+        if obj.is_split_payment:
+            return f"{obj.payment_method} + {obj.secondary_method}"
+        return obj.payment_method
+    payment_summary.short_description = "Payment"
     
     def receipt_link(self, obj):
         url = reverse('generate_quick_sale_receipt', args=[obj.pk])
