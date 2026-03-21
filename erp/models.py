@@ -695,7 +695,7 @@ class SalesOrder(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['-date', '-created_at']
+        ordering = ['pk']
 
     def __str__(self):
         return f"SO-{self.pk:05d} - {self.customer.name}"

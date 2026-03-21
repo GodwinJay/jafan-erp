@@ -631,7 +631,7 @@ class SalesOrderAdmin(RestrictedAdmin):
     list_filter = ["status", "date", "customer"]
     search_fields = ["customer__name", "customer__phone", "site__name"]
     date_hierarchy = "date"
-    ordering = ["-date", "-created_at"]
+    ordering = ["pk"]
     inlines = [SalesOrderItemInline]
     autocomplete_fields = ["customer"]
     readonly_fields = ["valid_until"]

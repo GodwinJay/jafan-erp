@@ -2221,13 +2221,13 @@ class AccountStatementGenerator(PDFGenerator):
             date__lte=end_date
         ):
             transactions.append({
-            'date': qs.date,
-            'description': f'Quick Sale: {qs.quantity}x {qs.block_type.name}',
-            'reference': f'QS-{qs.pk:05d}',
-            'debit': None,
-            'credit': qs.total_amount
-        })
-        period_credit += qs.total_amount
+                'date': qs.date,
+                'description': f'Quick Sale: {qs.quantity}x {qs.block_type.name}',
+                'reference': f'QS-{qs.pk:05d}',
+                'debit': None,
+                'credit': qs.total_amount
+            })
+            period_credit += qs.total_amount
 
 
 
