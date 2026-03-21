@@ -729,12 +729,18 @@ class SalesOrder(models.Model):
 
 
 class SalesOrderItem(models.Model):
+    DISCOUNT_TYPE_CHOICES = [
+        ('PER_BLOCK', 'Per Block'),
+        ('BULK', 'Bulk (Fixed Amount)'),
+    ]
+
     order = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name='items')
     block_type = models.ForeignKey(BlockType, on_delete=models.PROTECT)
     quantity_requested = models.PositiveIntegerField()
     agreed_price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity_supplied = models.PositiveIntegerField(default=0)
-    discount_per_block = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    discount_type = models.CharField(max_length=10, choices=DISCOUNT_TYPE_CHOICES, default='PER_BLOCK')
+    discount_value = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     discount_reason = models.CharField(max_length=200, blank=True)
 
     def __str__(self):
@@ -743,12 +749,19 @@ class SalesOrderItem(models.Model):
     def save(self, *args, **kwargs):
         base = self.block_type.selling_price
         surcharge = self.order.surcharge_per_block if self.order_id else Decimal('0.00')
-        self.agreed_price = base - self.discount_per_block + surcharge
+        if self.discount_type == 'BULK':
+            # agreed_price = undiscounted unit price; bulk discount applied at line level
+            self.agreed_price = base + surcharge
+        else:
+            self.agreed_price = base - self.discount_value + surcharge
         super().save(*args, **kwargs)
 
     @property
     def line_total(self):
-        return self.quantity_requested * self.agreed_price
+        total = self.quantity_requested * self.agreed_price
+        if self.discount_type == 'BULK':
+            total -= self.discount_value
+        return total
 
 
 class Payment(models.Model):

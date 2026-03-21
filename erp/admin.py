@@ -611,7 +611,7 @@ class SalesOrderItemInline(TabularInline):
     model = SalesOrderItem
     extra = 1
     tab = True 
-    fields = ["block_type", "quantity_requested", "discount_per_block", "discount_reason", "agreed_price", "quantity_supplied", "line_total_display"]
+    fields = ["block_type", "quantity_requested", "discount_type", "discount_value", "discount_reason", "agreed_price", "quantity_supplied", "line_total_display"]
     readonly_fields = ["agreed_price", "quantity_supplied", "line_total_display"]
     autocomplete_fields = ["block_type"]
 

@@ -1236,8 +1236,8 @@ class CustomerStatementGenerator(PDFGenerator):
         final_balance = customer.account_balance
         
         # We work BACKWARDS to find what the balance was at the start
-        # Start Balance = End Balance - (Everything that added to debt) + (Everything that reduced debt)
-        opening_balance = final_balance - period_debit + period_credit
+        # closing = opening + credits - debits  →  opening = closing + debits - credits
+        opening_balance = final_balance + period_debit - period_credit
 
         # ======================================================================
         # 3. BUILD TABLE
@@ -1516,41 +1516,60 @@ class ProformaInvoiceGenerator(PDFGenerator):
         # =========================================================
         elements.append(Paragraph("ORDER DETAILS:", self.styles['SectionHeader']))
 
-        # Check if there's a surcharge
+        # Check if there's a surcharge or any discount
         has_surcharge = sales_order.surcharge_per_block > 0
+        has_discount = sales_order.items.filter(discount_value__gt=0).exists()
 
         if has_surcharge:
             items_data = [['Item', 'Qty', 'Base Price', 'Discount', 'Surcharge', 'Net Price', 'Amount']]
-        else:
+        elif has_discount:
             items_data = [['Item', 'Qty', 'Unit Price', 'Discount', 'Net Price', 'Amount']]
+        else:
+            items_data = [['Item', 'Qty', 'Unit Price', 'Net Price', 'Amount']]
 
         subtotal = Decimal('0')
         total_qty = 0
 
         for item in sales_order.items.all():
             base_price = item.block_type.selling_price
-            discount = item.discount_per_block
+            discount = item.discount_value
             surcharge = sales_order.surcharge_per_block
             net_price = item.agreed_price
             line_total = item.line_total
+
+            # Format discount label based on type
+            if discount > 0:
+                if item.discount_type == 'BULK':
+                    discount_display = f"{self._format_currency(discount)}\n(Bulk)"
+                else:
+                    discount_display = self._format_currency(discount)
+            else:
+                discount_display = '-'
 
             if has_surcharge:
                 items_data.append([
                     item.block_type.name[:18] + '..' if len(item.block_type.name) > 18 else item.block_type.name,
                     str(item.quantity_requested),
                     self._format_currency(base_price),
-                    self._format_currency(discount) if discount > 0 else '-',
+                    discount_display,
                     self._format_currency(surcharge),
+                    self._format_currency(net_price),
+                    self._format_currency(line_total)
+                ])
+            elif has_discount:
+                items_data.append([
+                    item.block_type.name[:20] + '..' if len(item.block_type.name) > 20 else item.block_type.name,
+                    str(item.quantity_requested),
+                    self._format_currency(base_price),
+                    discount_display,
                     self._format_currency(net_price),
                     self._format_currency(line_total)
                 ])
             else:
                 items_data.append([
-                    item.block_type.name[:20] + '..' if len(item.block_type.name) > 20 else item.block_type.name,
+                    item.block_type.name[:25] + '..' if len(item.block_type.name) > 25 else item.block_type.name,
                     str(item.quantity_requested),
                     self._format_currency(base_price),
-                    self._format_currency(discount) if discount > 0 else '-',
-                    self._format_currency(net_price),
                     self._format_currency(line_total)
                 ])
 
@@ -1559,8 +1578,10 @@ class ProformaInvoiceGenerator(PDFGenerator):
 
         if has_surcharge:
             items_table = Table(items_data, colWidths=[50*mm, 12*mm, 26*mm, 22*mm, 22*mm, 26*mm, 32*mm])
-        else:
+        elif has_discount:
             items_table = Table(items_data, colWidths=[60*mm, 15*mm, 28*mm, 25*mm, 28*mm, 34*mm])
+        else:
+            items_table = Table(items_data, colWidths=[75*mm, 18*mm, 35*mm, 62*mm])
 
         style_commands = [
             ('FONTNAME', (0, 0), (-1, -1), self.font_name),
