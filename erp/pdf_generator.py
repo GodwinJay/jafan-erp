@@ -1259,11 +1259,11 @@ class CustomerStatementGenerator(PDFGenerator):
         for t in transactions:
             debit_str = self._format_currency(t['debit']) if t['debit'] else ''
             credit_str = self._format_currency(t['credit']) if t['credit'] else ''
-            
+
             desc = t['description']
-            if len(desc) > 35:
-                desc = desc[:32] + '...'
-            
+            if len(desc) > 45:
+                desc = desc[:42] + '...'
+
             trans_data.append([
                 t['date'].strftime('%d/%m/%Y'),
                 t['type'],
@@ -1271,11 +1271,11 @@ class CustomerStatementGenerator(PDFGenerator):
                 debit_str,
                 credit_str
             ])
-        
+
         # Totals row (These are just the Period Totals)
         trans_data.append(['', '', 'PERIOD TOTALS:', self._format_currency(period_debit), self._format_currency(period_credit)])
         
-        trans_table = Table(trans_data, colWidths=[60, 55, 165, 60, 60])
+        trans_table = Table(trans_data, colWidths=[55, 45, 230, 90, 90])
         
         # Build style
         style_commands = [
