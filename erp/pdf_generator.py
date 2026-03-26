@@ -3438,26 +3438,66 @@ class QuickSaleReceiptGenerator(PDFGenerator):
         # Sale Details
         elements.append(Paragraph("SALE DETAILS:", self.styles['SectionHeader']))
         
-        subtotal = sale.quantity * sale.unit_price
-        details_data = [
-            ['Block Type:', sale.block_type.name],
-            ['Quantity:', f'{sale.quantity} blocks'],
-            ['Unit Price:', self._format_currency(sale.unit_price)],
-            ['Subtotal:', self._format_currency(subtotal)],
-        ]
+        # Check if this is a multi-item sale or legacy single-item
+        items = sale.items.all()
         
-        if sale.logistics_discount > 0:
-            details_data.append(['Self-Pickup Discount:', f'-{self._format_currency(sale.logistics_discount)}/block'])
+        if items.exists():
+            # Multi-item sale - show table of items
+            details_data = [['Block Type', 'Qty', 'Unit Price', 'Discount', 'Line Total']]
+            
+            for item in items:
+                details_data.append([
+                    item.block_type.name,
+                    str(item.quantity),
+                    self._format_currency(item.unit_price),
+                    self._format_currency(item.logistics_discount) if item.logistics_discount else '-',
+                    self._format_currency(item.line_total),
+                ])
+            
+            details_table = Table(details_data, colWidths=[60, 30, 50, 40, 50])
+            details_table.setStyle(TableStyle([
+                *self._get_base_table_style(),
+                ('FONTNAME', (0, 0), (-1, 0), UNICODE_FONT_BOLD),
+                ('BACKGROUND', (0, 0), (-1, 0), NAVY_BLUE),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('BACKGROUND', (0, 1), (-1, -1), LIGHT_NAVY),
+                ('BOX', (0, 0), (-1, -1), 1, NAVY_BLUE),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.gray),
+                ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+            ]))
+            elements.append(details_table)
+            
+        elif sale.block_type and sale.quantity and sale.unit_price:
+            # Legacy single-item sale
+            subtotal = sale.quantity * sale.unit_price
+            details_data = [
+                ['Block Type:', sale.block_type.name],
+                ['Quantity:', f'{sale.quantity} blocks'],
+                ['Unit Price:', self._format_currency(sale.unit_price)],
+                ['Subtotal:', self._format_currency(subtotal)],
+            ]
+            
+            if sale.logistics_discount and sale.logistics_discount > 0:
+                details_data.append(['Self-Pickup Discount:', f'-{self._format_currency(sale.logistics_discount)}/block'])
+            
+            details_table = Table(details_data, colWidths=[115, 95])
+            details_table.setStyle(TableStyle([
+                *self._get_base_table_style(),
+                ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BACKGROUND', (0, 0), (-1, -1), LIGHT_NAVY),
+                ('BOX', (0, 0), (-1, -1), 1, NAVY_BLUE),
+            ]))
+            elements.append(details_table)
+            
+        else:
+            # Legacy record with missing data - show total only
+            elements.append(Paragraph(
+                f"<i>Legacy record - details not available</i>",
+                self.styles['SmallText']
+            ))
         
-        details_table = Table(details_data, colWidths=[115, 95])
-        details_table.setStyle(TableStyle([
-            *self._get_base_table_style(),
-            ('FONTNAME', (0, 0), (0, -1), UNICODE_FONT_BOLD),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('BACKGROUND', (0, 0), (-1, -1), LIGHT_NAVY),
-            ('BOX', (0, 0), (-1, -1), 1, NAVY_BLUE),
-        ]))
-        elements.append(details_table)
         elements.append(Spacer(1, 3*mm))
         
         # Amount Box (Gold Highlighted)
@@ -3489,12 +3529,30 @@ class QuickSaleReceiptGenerator(PDFGenerator):
         
         # Payment Details
         elements.append(Paragraph("PAYMENT:", self.styles['SectionHeader']))
-        payment_data = [
-            ['Method:', sale.get_payment_method_display()],
-            ['Account:', sale.payment_account.bank_name],
-        ]
-        if sale.reference:
-            payment_data.append(['Reference:', sale.reference])
+        
+        # Handle split payment
+        if sale.is_split_payment:
+            payment_data = [
+                ['Primary Method:', sale.get_payment_method_display()],
+                ['Primary Account:', sale.payment_account.bank_name],
+                ['Primary Amount:', self._format_currency(sale.primary_amount)],
+            ]
+            if sale.reference:
+                payment_data.append(['Primary Ref:', sale.reference])
+            
+            payment_data.append(['', ''])  # Spacer row
+            payment_data.append(['Secondary Method:', sale.get_secondary_method_display()],)
+            payment_data.append(['Secondary Account:', sale.secondary_account.bank_name])
+            payment_data.append(['Secondary Amount:', self._format_currency(sale.secondary_amount)])
+            if sale.secondary_reference:
+                payment_data.append(['Secondary Ref:', sale.secondary_reference])
+        else:
+            payment_data = [
+                ['Method:', sale.get_payment_method_display()],
+                ['Account:', sale.payment_account.bank_name],
+            ]
+            if sale.reference:
+                payment_data.append(['Reference:', sale.reference])
         
         payment_table = Table(payment_data, colWidths=[80, 130])
         payment_table.setStyle(TableStyle([
