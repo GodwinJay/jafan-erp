@@ -1798,27 +1798,43 @@ class SandSale(models.Model):
 
 
 
+
 class QuickSale(models.Model):
     """
     Quick cash-and-carry sales for walk-in customers.
     No customer account needed - just record the sale and payment.
     Supports split payments (e.g., part cash, part POS).
+    Supports multiple items via QuickSaleItem.
+    
+    Legacy records (before multi-item) have block_type, quantity, unit_price directly.
+    New records use QuickSaleItem children instead.
     """
     date = models.DateField(default=timezone.now)
     
-    # What was sold
-    block_type = models.ForeignKey(BlockType, on_delete=models.PROTECT)
-    quantity = models.PositiveIntegerField()
+    # Legacy single-item fields (kept for backward compatibility)
+    # New sales should use QuickSaleItem instead
+    block_type = models.ForeignKey(
+        BlockType, on_delete=models.PROTECT,
+        null=True, blank=True,  # Now optional for multi-item sales
+        help_text="Legacy field - use Items for new sales"
+    )
+    quantity = models.PositiveIntegerField(
+        null=True, blank=True,  # Now optional
+        help_text="Legacy field - use Items for new sales"
+    )
     unit_price = models.DecimalField(
-        max_digits=10, decimal_places=2, 
+        max_digits=10, decimal_places=2,
+        null=True, blank=True,  # Now optional
         editable=False,
-        help_text="Auto-filled from block type selling price"
+        help_text="Legacy field - auto-filled from block type"
     )
     logistics_discount = models.DecimalField(
         max_digits=10, decimal_places=2, default=0,
-        help_text="Discount per block for self-pickup (e.g., ₦50/block)"
+        help_text="Legacy field - use Items for new sales"
     )
-    total_amount = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
+    
+    # Total amount (calculated from items or legacy fields)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     
     # Primary Payment (required)
     payment_account = models.ForeignKey(
@@ -1885,7 +1901,12 @@ class QuickSale(models.Model):
         verbose_name_plural = "Quick Sales"
     
     def __str__(self):
-        return f"QS-{self.pk:05d} | {self.quantity} {self.block_type.name} | ₦{self.total_amount:,.0f}"
+        return f"QS-{self.pk:05d} | {self.items_summary} | ₦{self.total_amount:,.0f}"
+    
+    @property
+    def is_legacy(self):
+        """Check if this is a legacy single-item record."""
+        return self.block_type_id is not None and not self.items.exists()
     
     @property
     def primary_amount(self):
@@ -1895,25 +1916,44 @@ class QuickSale(models.Model):
     @property
     def is_split_payment(self):
         """Check if this is a split payment."""
-        return self.secondary_amount > 0 and self.secondary_account is not None
+        return (self.secondary_amount or 0) > 0 and self.secondary_account is not None
+    
+    @property
+    def total_quantity(self):
+        """Total blocks sold across all items."""
+        if self.is_legacy:
+            return self.quantity or 0
+        return self.items.aggregate(total=models.Sum('quantity'))['total'] or 0
+    
+    @property
+    def items_summary(self):
+        """Summary of items for display."""
+        if self.is_legacy:
+            if self.block_type:
+                return f"{self.quantity} {self.block_type.name}"
+            return f"₦{self.total_amount:,.0f}"
+        
+        items = self.items.all()
+        count = items.count()
+        if count == 0:
+            return "No items"
+        if count == 1:
+            item = items.first()
+            return f"{item.quantity} {item.block_type.name}"
+        total_qty = self.total_quantity
+        return f"{count} items, {total_qty} blocks"
     
     def clean(self):
         """Validate split payment fields."""
         from django.core.exceptions import ValidationError
         
-        # Calculate expected total for validation
-        if self.block_type_id and self.quantity:
-            expected_total = self.quantity * (self.block_type.selling_price - (self.logistics_discount or Decimal('0')))
-        else:
-            expected_total = Decimal('0')
-        
         # Validate secondary_amount is not negative
         if self.secondary_amount and self.secondary_amount < 0:
             raise ValidationError({'secondary_amount': 'Secondary amount cannot be negative'})
         
-        # Validate secondary_amount is not >= total
-        if self.secondary_amount and expected_total > 0:
-            if self.secondary_amount >= expected_total:
+        # Validate secondary_amount is not >= total (if total is set)
+        if self.secondary_amount and self.total_amount and self.total_amount > 0:
+            if self.secondary_amount >= self.total_amount:
                 raise ValidationError({'secondary_amount': 'Secondary amount must be less than total amount'})
         
         # Validate secondary payment fields are complete
@@ -1923,49 +1963,218 @@ class QuickSale(models.Model):
             if not self.secondary_method:
                 raise ValidationError({'secondary_method': 'Secondary method required when secondary amount > 0'})
     
+    def recalculate_total(self):
+        """Recalculate total from items (for multi-item sales)."""
+        if self.pk and self.items.exists():
+            self.total_amount = self.items.aggregate(
+                total=models.Sum('line_total')
+            )['total'] or Decimal('0')
+        return self.total_amount
+    
     @transaction.atomic
     def save(self, *args, **kwargs):
-        # Auto-fill unit price from block type
-        self.unit_price = self.block_type.selling_price
-        
-        # Calculate total (with discount per block)
-        self.total_amount = self.quantity * (self.unit_price - (self.logistics_discount or Decimal('0')))
-        
         is_new = self.pk is None
+        
+        # For legacy single-item sales, calculate total from direct fields
+        if self.block_type_id and self.quantity:
+            self.unit_price = self.block_type.selling_price
+            self.total_amount = self.quantity * (self.unit_price - (self.logistics_discount or Decimal('0')))
+        
+        # Store old values for comparison (for edits)
+        old_total = Decimal('0')
+        old_secondary = Decimal('0')
+        old_payment_account_id = None
+        old_secondary_account_id = None
+        
+        if not is_new:
+            old_obj = QuickSale.objects.get(pk=self.pk)
+            old_total = old_obj.total_amount or Decimal('0')
+            old_secondary = old_obj.secondary_amount or Decimal('0')
+            old_payment_account_id = old_obj.payment_account_id
+            old_secondary_account_id = old_obj.secondary_account_id
+        
         super().save(*args, **kwargs)
         
         if is_new:
-            # Deduct stock
-            self.block_type.current_stock -= self.quantity
-            self.block_type.save(update_fields=['current_stock'])
+            # NEW RECORD: Deduct stock and credit accounts
+            
+            # Deduct stock (for legacy single-item)
+            if self.block_type_id and self.quantity:
+                self.block_type.current_stock -= self.quantity
+                self.block_type.save(update_fields=['current_stock'])
             
             # Credit primary payment account
-            primary_amt = self.primary_amount
-            self.payment_account.current_balance += primary_amt
-            self.payment_account.save(update_fields=['current_balance'])
-            
-            # Credit secondary payment account (if split payment)
-            if self.is_split_payment:
-                self.secondary_account.current_balance += self.secondary_amount
-                self.secondary_account.save(update_fields=['current_balance'])
+            if self.total_amount > 0:
+                primary_amt = self.primary_amount
+                self.payment_account.current_balance += primary_amt
+                self.payment_account.save(update_fields=['current_balance'])
+                
+                # Credit secondary payment account (if split payment)
+                if self.is_split_payment:
+                    self.secondary_account.current_balance += self.secondary_amount
+                    self.secondary_account.save(update_fields=['current_balance'])
     
     @transaction.atomic
     def delete(self, *args, **kwargs):
-        # Restore stock
-        self.block_type.current_stock += self.quantity
-        self.block_type.save(update_fields=['current_stock'])
+        # REVERT ALL FINANCIAL CHANGES
+        
+        # Restore stock for legacy single-item
+        if self.block_type_id and self.quantity:
+            self.block_type.current_stock += self.quantity
+            self.block_type.save(update_fields=['current_stock'])
+        
+        # Restore stock for multi-item (items will cascade delete, so do this first)
+        for item in self.items.all():
+            item.block_type.current_stock += item.quantity
+            item.block_type.save(update_fields=['current_stock'])
         
         # Debit primary payment account
-        primary_amt = self.primary_amount
-        self.payment_account.current_balance -= primary_amt
-        self.payment_account.save(update_fields=['current_balance'])
-        
-        # Debit secondary payment account (if split payment)
-        if self.is_split_payment:
-            self.secondary_account.current_balance -= self.secondary_amount
-            self.secondary_account.save(update_fields=['current_balance'])
+        if self.total_amount > 0:
+            primary_amt = self.primary_amount
+            self.payment_account.current_balance -= primary_amt
+            self.payment_account.save(update_fields=['current_balance'])
+            
+            # Debit secondary payment account (if split payment)
+            if self.is_split_payment:
+                self.secondary_account.current_balance -= self.secondary_amount
+                self.secondary_account.save(update_fields=['current_balance'])
         
         super().delete(*args, **kwargs)
+
+
+class QuickSaleItem(models.Model):
+    """
+    Individual line item for a QuickSale.
+    Handles stock deduction on save and restoration on delete.
+    """
+    quick_sale = models.ForeignKey(
+        QuickSale, on_delete=models.CASCADE, related_name='items'
+    )
+    block_type = models.ForeignKey(BlockType, on_delete=models.PROTECT)
+    quantity = models.PositiveIntegerField()
+    unit_price = models.DecimalField(
+        max_digits=10, decimal_places=2, editable=False,
+        help_text="Auto-filled from block type selling price"
+    )
+    logistics_discount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        help_text="Discount per block for self-pickup"
+    )
+    line_total = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
+    
+    class Meta:
+        verbose_name = "Quick Sale Item"
+        verbose_name_plural = "Quick Sale Items"
+    
+    def __str__(self):
+        return f"{self.quantity} x {self.block_type.name} @ ₦{self.unit_price:,.0f}"
+    
+    @property
+    def net_price(self):
+        """Price per block after discount."""
+        return self.unit_price - (self.logistics_discount or Decimal('0'))
+    
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        
+        # Auto-fill unit price from block type
+        self.unit_price = self.block_type.selling_price
+        
+        # Calculate line total
+        self.line_total = self.quantity * self.net_price
+        
+        # Track old quantity for stock adjustment on edit
+        old_quantity = 0
+        old_block_type_id = None
+        if not is_new:
+            old_obj = QuickSaleItem.objects.get(pk=self.pk)
+            old_quantity = old_obj.quantity
+            old_block_type_id = old_obj.block_type_id
+        
+        super().save(*args, **kwargs)
+        
+        if is_new:
+            # NEW ITEM: Deduct stock
+            self.block_type.current_stock -= self.quantity
+            self.block_type.save(update_fields=['current_stock'])
+        else:
+            # EDIT: Adjust stock difference
+            if old_block_type_id == self.block_type_id:
+                # Same block type - adjust difference
+                diff = self.quantity - old_quantity
+                if diff != 0:
+                    self.block_type.current_stock -= diff
+                    self.block_type.save(update_fields=['current_stock'])
+            else:
+                # Different block type - restore old, deduct new
+                old_block = BlockType.objects.get(pk=old_block_type_id)
+                old_block.current_stock += old_quantity
+                old_block.save(update_fields=['current_stock'])
+                
+                self.block_type.current_stock -= self.quantity
+                self.block_type.save(update_fields=['current_stock'])
+        
+        # Update parent total and payment accounts
+        self._update_parent_financials(is_new)
+    
+    def _update_parent_financials(self, is_new_item):
+        """Update parent QuickSale total and payment account balances."""
+        parent = self.quick_sale
+        old_total = parent.total_amount or Decimal('0')
+        
+        # Recalculate parent total
+        parent.recalculate_total()
+        new_total = parent.total_amount
+        
+        # Calculate difference
+        diff = new_total - old_total
+        
+        if diff != 0:
+            # Adjust payment account balances
+            # Primary gets the difference minus any secondary amount change
+            old_primary = old_total - (parent.secondary_amount or Decimal('0'))
+            new_primary = new_total - (parent.secondary_amount or Decimal('0'))
+            primary_diff = new_primary - old_primary
+            
+            if primary_diff != 0:
+                parent.payment_account.current_balance += primary_diff
+                parent.payment_account.save(update_fields=['current_balance'])
+        
+        parent.save(update_fields=['total_amount'])
+    
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        # Store values before delete
+        quantity = self.quantity
+        block_type = self.block_type
+        line_total = self.line_total
+        parent = self.quick_sale
+        
+        super().delete(*args, **kwargs)
+        
+        # Restore stock
+        block_type.current_stock += quantity
+        block_type.save(update_fields=['current_stock'])
+        
+        # Update parent total and payment accounts
+        old_total = parent.total_amount or Decimal('0')
+        parent.recalculate_total()
+        new_total = parent.total_amount
+        
+        diff = new_total - old_total  # Will be negative
+        
+        if diff != 0:
+            # Adjust primary payment account
+            old_primary = old_total - (parent.secondary_amount or Decimal('0'))
+            new_primary = new_total - (parent.secondary_amount or Decimal('0'))
+            primary_diff = new_primary - old_primary
+            
+            if primary_diff != 0:
+                parent.payment_account.current_balance += primary_diff
+                parent.payment_account.save(update_fields=['current_balance'])
+        
+        parent.save(update_fields=['total_amount'])
 # ==============================================================================
 # 9. Loans & Debtors
 # ==============================================================================
