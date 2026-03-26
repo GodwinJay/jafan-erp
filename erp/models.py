@@ -815,7 +815,7 @@ class SupplyLog(models.Model):
     date = models.DateField(default=timezone.now)
     delivery_type = models.CharField(max_length=20, choices=DELIVERY_TYPE_CHOICES, default='DELIVERED')
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name='supplies')
-    site = models.ForeignKey(Site, on_delete=models.PROTECT)
+    site = models.ForeignKey(Site, on_delete=models.PROTECT, null=True, blank=True)
     sales_order = models.ForeignKey(SalesOrder, on_delete=models.SET_NULL, null=True, blank=True, related_name='supplies')
     order_item = models.ForeignKey(SalesOrderItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='supplies')
     block_type = models.ForeignKey(BlockType, on_delete=models.PROTECT, related_name='supplies')
@@ -827,7 +827,6 @@ class SupplyLog(models.Model):
     logistics_discount = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     total_value = models.DecimalField(max_digits=12, decimal_places=2, editable=False, default=Decimal('0.00'))
     logistics_income = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), editable=False)
-    # COGS Fields - Frozen at time of sale for accurate P&L
     cost_of_goods_sold = models.DecimalField(
         max_digits=12, decimal_places=2,
         editable=False, default=Decimal('0.00'),
@@ -859,6 +858,8 @@ class SupplyLog(models.Model):
             raise ValidationError("Breakages + Returned cannot exceed Quantity Loaded.")
         if self.delivery_type == 'DELIVERED' and not self.truck:
             raise ValidationError({'truck': "Truck is required for Company Delivery."})
+        if self.delivery_type == 'DELIVERED' and not self.site:
+            raise ValidationError({'site': "Site is required for Company Delivery."})
         if self.delivery_type == 'SELF_PICKUP' and not self.pickup_authorized_by:
             raise ValidationError({'pickup_authorized_by': "Authorization required for Self-Pickup."})
         
