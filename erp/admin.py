@@ -18,7 +18,7 @@ from .models import (
     Payment, SalesOrder, SalesOrderItem, SupplyLog,
     ReturnLog, CashRefund, BreakageLog, FuelLog, MaintenanceLog,
     TransportAsset, TransportRevenue, BankCharge, AccountTransfer,
-    DailyCashClose, VendorPayment, TeamPayment, SandVehicleType, SandSale, Debtor, Loan, LoanRepayment, QuickSale
+    DailyCashClose, VendorPayment, TeamPayment, SandVehicleType, SandSale, Debtor, Loan, LoanRepayment, QuickSale, QuickSaleItem
 )
 
 
@@ -1751,18 +1751,33 @@ class LoanRepaymentAdmin(RestrictedAdmin):
         super().save_model(request, obj, form, change)
 
 
+class QuickSaleItemInline(TabularInline):
+    model = QuickSaleItem
+    extra = 1
+    tab = True
+    fields = ['block_type', 'quantity', 'unit_price', 'logistics_discount', 'line_total_display']
+    readonly_fields = ['unit_price', 'line_total_display']
+    autocomplete_fields = ['block_type']
+    
+    def line_total_display(self, obj):
+        if obj.pk:
+            return f"₦{obj.line_total:,.2f}"
+        return "-"
+    line_total_display.short_description = "Line Total"
+
+
 @admin.register(QuickSale)
 class QuickSaleAdmin(RestrictedAdmin):
-    list_display = ['quick_sale_id', 'date', 'block_type', 'quantity', 'unit_price_display', 'total_amount_display', 'payment_summary', 'buyer_name', 'recorded_by', 'receipt_link']
-    list_filter = ['date', 'block_type', 'payment_method', 'payment_account']
+    list_display = ['quick_sale_id', 'date', 'items_summary_display', 'total_amount_display', 'payment_summary', 'buyer_name', 'recorded_by', 'receipt_link']
+    list_filter = ['date', 'payment_method', 'payment_account']
     search_fields = ['buyer_name', 'buyer_phone', 'reference']
-    date_hierarchy = 'date'
-    autocomplete_fields = ['block_type', 'payment_account', 'secondary_account']
-    readonly_fields = ['unit_price', 'total_amount', 'primary_amount_display', 'recorded_by', 'created_at']
+    autocomplete_fields = ['payment_account', 'secondary_account']
+    readonly_fields = ['total_amount', 'primary_amount_display', 'recorded_by', 'created_at']
+    inlines = [QuickSaleItemInline]
     
     fieldsets = (
-        ('Sale Details', {
-            'fields': ('date', 'block_type', 'quantity', 'unit_price', 'logistics_discount', 'total_amount')
+        ('Sale Info', {
+            'fields': ('date', 'total_amount')
         }),
         ('Primary Payment', {
             'fields': ('payment_account', 'payment_method', 'reference', 'primary_amount_display')
@@ -1792,7 +1807,6 @@ class QuickSaleAdmin(RestrictedAdmin):
         
         if obj:  # Editing existing record
             readonly.extend([
-                'block_type', 'quantity', 'logistics_discount',
                 'payment_account', 'payment_method',
                 'secondary_amount', 'secondary_account', 'secondary_method'
             ])
@@ -1803,32 +1817,59 @@ class QuickSaleAdmin(RestrictedAdmin):
         return f"QS-{obj.pk:05d}"
     quick_sale_id.short_description = "Sale ID"
     
-    def unit_price_display(self, obj):
-        return f"₦{obj.unit_price:,.2f}"
-    unit_price_display.short_description = "Unit Price"
+    def items_summary_display(self, obj):
+        try:
+            return obj.items_summary
+        except Exception:
+            return "-"
+    items_summary_display.short_description = "Items"
     
     def total_amount_display(self, obj):
-        return f"₦{obj.total_amount:,.2f}"
+        try:
+            return f"₦{obj.total_amount:,.2f}"
+        except Exception:
+            return "-"
     total_amount_display.short_description = "Total"
     
     def primary_amount_display(self, obj):
-        if obj.pk:
-            return f"₦{obj.primary_amount:,.2f}"
+        try:
+            if obj.pk and obj.total_amount:
+                return f"₦{obj.primary_amount:,.2f}"
+        except Exception:
+            pass
         return "Calculated on save"
     primary_amount_display.short_description = "Primary Amount"
     
     def payment_summary(self, obj):
-        if obj.is_split_payment:
-            return f"{obj.payment_method} + {obj.secondary_method}"
-        return obj.payment_method
+        try:
+            if obj.is_split_payment:
+                return f"{obj.payment_method} + {obj.secondary_method}"
+            return obj.payment_method
+        except Exception:
+            return "-"
     payment_summary.short_description = "Payment"
     
     def receipt_link(self, obj):
-        url = reverse('generate_quick_sale_receipt', args=[obj.pk])
-        return format_html('<a href="{}" target="_blank">📄 Receipt</a>', url)
+        try:
+            url = reverse('generate_quick_sale_receipt', args=[obj.pk])
+            return format_html('<a href="{}" target="_blank">📄 Receipt</a>', url)
+        except Exception:
+            return "-"
     receipt_link.short_description = "Receipt"
     
     def save_model(self, request, obj, form, change):
         if not change:
             obj.recorded_by = request.user
         super().save_model(request, obj, form, change)
+
+
+@admin.register(QuickSaleItem)
+class QuickSaleItemAdmin(RestrictedAdmin):
+    list_display = ['quick_sale', 'block_type', 'quantity', 'unit_price', 'line_total']
+    list_filter = ['block_type']
+    search_fields = ['quick_sale__buyer_name', 'block_type__name']
+    autocomplete_fields = ['quick_sale', 'block_type']
+    
+    def has_module_permission(self, request):
+        """Hide from sidebar - accessed via QuickSale inline only."""
+        return False
