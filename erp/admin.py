@@ -1918,38 +1918,52 @@ class InterCompanyAccountAdmin(RestrictedAdmin):
     def colored_balance(self, obj):
         if obj.outstanding_balance > 0:
             return format_html(
-                '<span style="color:#E24B4A; font-weight:600;">₦{:,.2f}</span>',
-                obj.outstanding_balance
+                '<span style="color:#E24B4A; font-weight:600;">{}</span>',
+                f'₦{obj.outstanding_balance:,.2f}'
             )
         elif obj.outstanding_balance < 0:
             return format_html(
-                '<span style="color:#1D9E75; font-weight:600;">-₦{:,.2f}</span>',
-                abs(obj.outstanding_balance)
+                '<span style="color:#1D9E75; font-weight:600;">{}</span>',
+                f'-₦{abs(obj.outstanding_balance):,.2f}'
             )
-        return format_html('<span style="color:#1D9E75; font-weight:600;">₦0.00 ✓</span>')
+        return format_html(
+            '<span style="color:#1D9E75; font-weight:600;">{}</span>',
+            '₦0.00 ✓'
+        )
 
     @admin.display(description="Who Owes Whom")
     def who_owes_whom(self, obj):
         if obj.outstanding_balance > 0:
             return format_html(
-                '<span style="color:#E24B4A; font-weight:500;">⬆ Block Industry owes C&C</span>'
+                '<span style="color:#E24B4A; font-weight:500;">{}</span>',
+                '⬆ Block Industry owes C&C'
             )
         elif obj.outstanding_balance < 0:
             return format_html(
-                '<span style="color:#1D9E75; font-weight:500;">⬇ C&C owes Block Industry</span>'
+                '<span style="color:#1D9E75; font-weight:500;">{}</span>',
+                '⬇ C&C owes Block Industry'
             )
-        return format_html('<span style="color:#639922;">✓ Settled</span>')
+        return format_html(
+            '<span style="color:#639922;">{}</span>',
+            '✓ Settled'
+        )
 
     @admin.display(description="Status")
     def who_owes_whom_detail(self, obj):
+        if not obj.pk:
+            return "Save first to see status."
         return obj.balance_status
 
     @admin.display(description="Total Collected from C&C")
     def total_collected_display(self, obj):
+        if not obj.pk:
+            return "-"
         return f"₦{obj.total_collected:,.2f}"
 
     @admin.display(description="Total Repaid to C&C")
     def total_repaid_display(self, obj):
+        if not obj.pk:
+            return "-"
         return f"₦{obj.total_repaid:,.2f}"
 
 
