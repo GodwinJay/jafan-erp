@@ -274,6 +274,8 @@ class CashFlowService:
         transactions.extend(self._get_bank_charges())
         transactions.extend(self._get_transfers_in())
         transactions.extend(self._get_transfers_out())
+        transactions.extend(self._get_intercompany_collections())
+        transactions.extend(self._get_intercompany_repayments())
         
         # Sort by date, then by created_at if available
         transactions.sort(key=lambda x: (x['date'], x.get('created_at', x['date'])))
@@ -329,7 +331,8 @@ class CashFlowService:
         from .models import (
             Payment, ProcurementLog, Expense, VendorPayment,
             CashRefund, BankCharge, AccountTransfer, TeamPayment, 
-            SandSale, Loan, LoanRepayment, QuickSale
+            SandSale, Loan, LoanRepayment, QuickSale,
+            CashCollection, CashRepayment
         )
         
         # ============================================================
@@ -375,8 +378,16 @@ class CashFlowService:
         loan_repayments_in = LoanRepayment.objects.filter(
             **loan_rep_filter
         ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+
+        # Inter-Company Collections (money IN from C&C)
+        icc_filter = {'date__lt': self.start_date}
+        if self.account:
+            icc_filter['receiving_account'] = self.account
+        intercompany_collections_in = CashCollection.objects.filter(
+            **icc_filter
+        ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
         
-        total_inflows = payments_in + transfers_in + sand_sales_in + quick_sales_in + loan_repayments_in
+        total_inflows = payments_in + transfers_in + sand_sales_in + quick_sales_in + loan_repayments_in + intercompany_collections_in
         
         # ============================================================
         # OUTFLOWS (before start_date)
@@ -449,6 +460,14 @@ class CashFlowService:
         transfers_out = AccountTransfer.objects.filter(
             **transfers_out_filter
         ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+
+        # Inter-Company Repayments (money OUT to C&C)
+        icr_filter = {'date__lt': self.start_date}
+        if self.account:
+            icr_filter['source_account'] = self.account
+        intercompany_repayments_out = CashRepayment.objects.filter(
+            **icr_filter
+        ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
         
         total_outflows = (
             procurements_out + 
@@ -458,7 +477,8 @@ class CashFlowService:
             loans_given_out +
             refunds_out + 
             bank_charges_out + 
-            transfers_out
+            transfers_out +
+            intercompany_repayments_out
         )
         
         # ============================================================
@@ -821,6 +841,64 @@ class CashFlowService:
                 'outflow': t.amount,
                 'account': t.from_account.bank_name,
                 'created_at': t.created_at,
+            })
+        return results
+
+    def _get_intercompany_collections(self):
+        """Inter-Company Collections = Cash IN (from C&C Frozen Food)"""
+        from .models import CashCollection
+
+        collections = CashCollection.objects.filter(
+            date__gte=self.start_date,
+            date__lte=self.end_date
+        ).select_related('receiving_account', 'employee', 'inter_company_account')
+
+        if self.account:
+            collections = collections.filter(receiving_account=self.account)
+
+        results = []
+        for cc in collections:
+            desc = f"C&C Collection: {cc.get_purpose_display()}"
+            if cc.employee:
+                desc += f" ({cc.employee.name})"
+
+            results.append({
+                'date': cc.date,
+                'type': 'Inter-Company Collection',
+                'description': desc,
+                'category': 'Inter-Company (C&C)',
+                'reference': cc.reference or f'ICC-{cc.pk:05d}',
+                'inflow': cc.amount,
+                'outflow': None,
+                'account': cc.receiving_account.bank_name if cc.receiving_account else '',
+                'created_at': cc.created_at,
+            })
+        return results
+
+    def _get_intercompany_repayments(self):
+        """Inter-Company Repayments = Cash OUT (to C&C Frozen Food)"""
+        from .models import CashRepayment
+
+        repayments = CashRepayment.objects.filter(
+            date__gte=self.start_date,
+            date__lte=self.end_date
+        ).select_related('source_account', 'inter_company_account')
+
+        if self.account:
+            repayments = repayments.filter(source_account=self.account)
+
+        results = []
+        for cr in repayments:
+            results.append({
+                'date': cr.date,
+                'type': 'Inter-Company Repayment',
+                'description': f"C&C Repayment: {cr.get_repayment_method_display()}",
+                'category': 'Inter-Company (C&C)',
+                'reference': cr.reference or f'ICR-{cr.pk:05d}',
+                'inflow': None,
+                'outflow': cr.amount,
+                'account': cr.source_account.bank_name if cr.source_account else '',
+                'created_at': cr.created_at,
             })
         return results
     

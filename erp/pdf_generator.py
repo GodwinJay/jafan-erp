@@ -2496,6 +2496,44 @@ class AccountStatementGenerator(PDFGenerator):
                     'credit': tr.amount
                 })
                 period_credit += tr.amount
+
+        # ----------------------------------------------------------------------
+        # CREDITS: Inter-Company Collections (money IN from C&C)
+        # ----------------------------------------------------------------------
+        from .models import CashCollection, CashRepayment
+        for cc in CashCollection.objects.filter(
+            receiving_account=account,
+            date__gte=start_date,
+            date__lte=end_date
+        ):
+            desc = f'C&C Collection: {cc.get_purpose_display()}'
+            if cc.employee:
+                desc += f' ({cc.employee.name})'
+            transactions.append({
+                'date': cc.date,
+                'description': desc,
+                'reference': cc.reference or f'ICC-{cc.pk:05d}',
+                'debit': None,
+                'credit': cc.amount
+            })
+            period_credit += cc.amount
+
+        # ----------------------------------------------------------------------
+        # DEBITS: Inter-Company Repayments (money OUT to C&C)
+        # ----------------------------------------------------------------------
+        for cr in CashRepayment.objects.filter(
+            source_account=account,
+            date__gte=start_date,
+            date__lte=end_date
+        ):
+            transactions.append({
+                'date': cr.date,
+                'description': f'C&C Repayment: {cr.get_repayment_method_display()}',
+                'reference': cr.reference or f'ICR-{cr.pk:05d}',
+                'debit': cr.amount,
+                'credit': None
+            })
+            period_debit += cr.amount
         
         # Sort ALL transactions by date
         transactions.sort(key=lambda x: x['date'])
