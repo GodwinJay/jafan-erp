@@ -2387,6 +2387,568 @@ class LoanRepayment(models.Model):
 
 
 
+# ==============================================================================
+# 11. Inter-Company Cash Flow (C&C Frozen Food ↔ Block Industry)
+# ==============================================================================
+
+class InterCompanyAccount(models.Model):
+    """
+    Tracks liability between two sister companies.
+    Positive balance = Block Industry owes C&C Frozen Food.
+    """
+    name = models.CharField(
+        max_length=100, unique=True,
+        help_text="e.g. 'C&C Frozen Food → Block Industry'"
+    )
+    creditor_company = models.CharField(
+        max_length=100, default="C&C Frozen Food",
+        help_text="Company providing the cash (lender)"
+    )
+    debtor_company = models.CharField(
+        max_length=100, default="Jafan Standard Block Industry",
+        help_text="Company receiving the cash (borrower)"
+    )
+    outstanding_balance = models.DecimalField(
+        max_digits=14, decimal_places=2, default=Decimal('0.00'),
+        help_text="Current amount owed. Positive = debtor owes creditor."
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Inter-Company Account"
+        verbose_name_plural = "Inter-Company Accounts"
+
+    def __str__(self):
+        return f"{self.name} | Balance: ₦{self.outstanding_balance:,.2f}"
+
+    @property
+    def balance_status(self):
+        if self.outstanding_balance > 0:
+            return f"{self.debtor_company} owes ₦{self.outstanding_balance:,.2f}"
+        elif self.outstanding_balance < 0:
+            return f"{self.creditor_company} owes ₦{abs(self.outstanding_balance):,.2f}"
+        return "Settled"
+
+    @property
+    def total_collected(self):
+        return self.collections.aggregate(
+            total=Sum('amount')
+        )['total'] or Decimal('0')
+
+    @property
+    def total_repaid(self):
+        return self.repayments.aggregate(
+            total=Sum('amount')
+        )['total'] or Decimal('0')
+
+
+class CashCollection(models.Model):
+    """
+    Records cash pulled FROM C&C Frozen Food TO fund Block Industry operations.
+    Each collection INCREASES the outstanding debt.
+    """
+    PURPOSE_CHOICES = [
+        ('OPS', 'General Operations'),
+        ('TRANSPORTER', 'Transporter Advance'),
+        ('MATERIALS', 'Raw Materials Purchase'),
+        ('SALARY', 'Salary/Wages'),
+        ('EMERGENCY', 'Emergency/Urgent'),
+        ('OTHER', 'Other'),
+    ]
+
+    date = models.DateField(default=timezone.now)
+    inter_company_account = models.ForeignKey(
+        InterCompanyAccount, on_delete=models.PROTECT,
+        related_name='collections'
+    )
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    purpose = models.CharField(max_length=20, choices=PURPOSE_CHOICES, default='OPS')
+    purpose_detail = models.CharField(
+        max_length=200, blank=True,
+        help_text="Specific reason, e.g. 'Advance for Driver Emeka - Dangote trip'"
+    )
+
+    # Optional: link to transporter when purpose is TRANSPORTER
+    employee = models.ForeignKey(
+        Employee, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='intercompany_advances',
+        limit_choices_to={'role__in': ['DRIVER', 'TRANSPORT']},
+        help_text="Link to transporter/driver if this is a driver advance"
+    )
+
+    # Which Block Industry account received the cash
+    receiving_account = models.ForeignKey(
+        PaymentAccount, on_delete=models.PROTECT,
+        related_name='intercompany_collections',
+        help_text="Block Industry account that received the cash"
+    )
+
+    reference = models.CharField(max_length=100, blank=True)
+    notes = models.TextField(blank=True)
+    recorded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, editable=False
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+        verbose_name = "Cash Collection (from C&C)"
+        verbose_name_plural = "Cash Collections (from C&C)"
+
+    def __str__(self):
+        label = f"₦{self.amount:,.2f} - {self.get_purpose_display()}"
+        if self.employee:
+            label += f" ({self.employee.name})"
+        return f"{self.date} | {label}"
+
+    def clean(self):
+        if self.amount is not None and self.amount <= 0:
+            raise ValidationError({'amount': 'Collection amount must be greater than zero.'})
+        if self.purpose == 'TRANSPORTER' and not self.employee:
+            raise ValidationError({
+                'employee': 'You must select a transporter/driver when purpose is "Transporter Advance".'
+            })
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_edit = self.pk is not None
+
+        if is_edit:
+            old = CashCollection.objects.select_for_update().get(pk=self.pk)
+            # Reverse old: decrease debt, decrease receiving account
+            InterCompanyAccount.objects.filter(pk=old.inter_company_account.pk).update(
+                outstanding_balance=F('outstanding_balance') - old.amount
+            )
+            PaymentAccount.objects.filter(pk=old.receiving_account.pk).update(
+                current_balance=F('current_balance') - old.amount
+            )
+
+        super().save(*args, **kwargs)
+
+        # Apply new: increase debt, increase receiving account
+        InterCompanyAccount.objects.filter(pk=self.inter_company_account.pk).update(
+            outstanding_balance=F('outstanding_balance') + self.amount
+        )
+        PaymentAccount.objects.filter(pk=self.receiving_account.pk).update(
+            current_balance=F('current_balance') + self.amount
+        )
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        # Reverse: decrease debt, decrease receiving account
+        InterCompanyAccount.objects.filter(pk=self.inter_company_account.pk).update(
+            outstanding_balance=F('outstanding_balance') - self.amount
+        )
+        PaymentAccount.objects.filter(pk=self.receiving_account.pk).update(
+            current_balance=F('current_balance') - self.amount
+        )
+        super().delete(*args, **kwargs)
+
+
+class CashRepayment(models.Model):
+    """
+    Records cash paid BACK from Block Industry TO C&C Frozen Food.
+    Each repayment DECREASES the outstanding debt.
+    """
+    REPAYMENT_METHOD_CHOICES = [
+        ('CASH', 'Cash'),
+        ('TRANSFER', 'Bank Transfer'),
+        ('OFFSET', 'Offset Against Revenue'),
+        ('OTHER', 'Other'),
+    ]
+
+    date = models.DateField(default=timezone.now)
+    inter_company_account = models.ForeignKey(
+        InterCompanyAccount, on_delete=models.PROTECT,
+        related_name='repayments'
+    )
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    repayment_method = models.CharField(
+        max_length=20, choices=REPAYMENT_METHOD_CHOICES, default='CASH'
+    )
+
+    # Which Block Industry account the repayment came from
+    source_account = models.ForeignKey(
+        PaymentAccount, on_delete=models.PROTECT,
+        related_name='intercompany_repayments',
+        help_text="Block Industry account that the repayment was made from"
+    )
+
+    reference = models.CharField(max_length=100, blank=True)
+    notes = models.TextField(blank=True)
+    recorded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, editable=False
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+        verbose_name = "Cash Repayment (to C&C)"
+        verbose_name_plural = "Cash Repayments (to C&C)"
+
+    def __str__(self):
+        return f"{self.date} | ₦{self.amount:,.2f} repaid via {self.get_repayment_method_display()}"
+
+    def clean(self):
+        if self.amount is not None and self.amount <= 0:
+            raise ValidationError({'amount': 'Repayment amount must be greater than zero.'})
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_edit = self.pk is not None
+
+        if is_edit:
+            old = CashRepayment.objects.select_for_update().get(pk=self.pk)
+            # Reverse old: increase debt back, add back to source account
+            InterCompanyAccount.objects.filter(pk=old.inter_company_account.pk).update(
+                outstanding_balance=F('outstanding_balance') + old.amount
+            )
+            PaymentAccount.objects.filter(pk=old.source_account.pk).update(
+                current_balance=F('current_balance') + old.amount
+            )
+
+        super().save(*args, **kwargs)
+
+        # Apply new: decrease debt, decrease source account
+        InterCompanyAccount.objects.filter(pk=self.inter_company_account.pk).update(
+            outstanding_balance=F('outstanding_balance') - self.amount
+        )
+        PaymentAccount.objects.filter(pk=self.source_account.pk).update(
+            current_balance=F('current_balance') - self.amount
+        )
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        # Reverse: increase debt back, add back to source account
+        InterCompanyAccount.objects.filter(pk=self.inter_company_account.pk).update(
+            outstanding_balance=F('outstanding_balance') + self.amount
+        )
+        PaymentAccount.objects.filter(pk=self.source_account.pk).update(
+            current_balance=F('current_balance') + self.amount
+        )
+        super().delete(*args, **kwargs)
+
+
+# ==============================================================================
+# 12. HR Discipline, Penalties & Strike Tracking
+# ==============================================================================
+
+class OffenceCategory(models.Model):
+    """
+    Lookup table matching the Company Constitution Section 3.
+    Seeded with categories A-D and their default escalation paths.
+    """
+    SEVERITY_CHOICES = [
+        ('A', 'Category A - Minor (Start at Step 1)'),
+        ('B', 'Category B - Moderate (Start at Step 2)'),
+        ('C', 'Category C - Serious (Start at Step 3/4)'),
+        ('D', 'Category D - Terminable (Immediate)'),
+    ]
+
+    name = models.CharField(max_length=100, unique=True)
+    severity = models.CharField(max_length=1, choices=SEVERITY_CHOICES)
+    description = models.TextField(
+        blank=True,
+        help_text="Description and escalation path per the constitution"
+    )
+    default_fine_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'),
+        help_text="Default fine amount (₦) if applicable. 0 = no fine."
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['severity', 'name']
+        verbose_name = "Offence Category"
+        verbose_name_plural = "Offence Categories"
+
+    def __str__(self):
+        return f"[{self.severity}] {self.name}"
+
+
+class DisciplinaryRecord(models.Model):
+    """
+    Tracks every disciplinary action against an employee.
+    Maps to the progressive discipline system (Section 3.1).
+    """
+    ACTION_CHOICES = [
+        ('VERBAL', 'Verbal Warning'),
+        ('WRITTEN', 'Written Warning'),
+        ('FINAL', 'Final Warning'),
+        ('FINE', 'Fine'),
+        ('SUSPENSION', 'Suspension'),
+        ('TERMINATION', 'Termination'),
+    ]
+    STATUS_CHOICES = [
+        ('ACTIVE', 'Active'),
+        ('EXPIRED', 'Expired (Clean Record Reset)'),
+        ('SERVED', 'Served'),
+        ('APPEALED', 'Under Appeal'),
+    ]
+
+    date = models.DateField(default=timezone.now)
+    employee = models.ForeignKey(
+        Employee, on_delete=models.PROTECT,
+        related_name='disciplinary_records'
+    )
+    offence_category = models.ForeignKey(
+        OffenceCategory, on_delete=models.PROTECT,
+        related_name='records'
+    )
+    action_taken = models.CharField(max_length=15, choices=ACTION_CHOICES)
+    offence_description = models.TextField(
+        help_text="Specific details of what happened"
+    )
+
+    # Suspension details
+    suspension_days = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of days suspended (0 if not a suspension)"
+    )
+    suspension_start = models.DateField(null=True, blank=True)
+    suspension_end = models.DateField(null=True, blank=True)
+
+    # Pay deduction (for Step 3 / fines)
+    pay_deduction = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'),
+        help_text="Amount deducted from pay (₦)"
+    )
+
+    status = models.CharField(
+        max_length=10, choices=STATUS_CHOICES, default='ACTIVE'
+    )
+
+    # Who issued & witnessed
+    issued_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True,
+        related_name='disciplinary_actions_issued',
+        help_text="Foreman, GM, or MD who issued the action"
+    )
+    witness = models.CharField(max_length=100, blank=True)
+    notes = models.TextField(blank=True)
+    recorded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, editable=False
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+        verbose_name = "Disciplinary Record"
+        verbose_name_plural = "Disciplinary Records"
+
+    def __str__(self):
+        return (
+            f"{self.date} | {self.employee.name} | "
+            f"{self.get_action_taken_display()} - {self.offence_category.name}"
+        )
+
+    @property
+    def is_expired(self):
+        """
+        Clean Record Reset: 90 consecutive days with zero infractions
+        resets the record. Constitution Section 3.1.
+        """
+        if self.status != 'ACTIVE':
+            return self.status == 'EXPIRED'
+        days_since = (timezone.now().date() - self.date).days
+        # Check validity windows per action type
+        validity_map = {
+            'VERBAL': 30,
+            'WRITTEN': 60,
+            'FINAL': 90,
+        }
+        validity_days = validity_map.get(self.action_taken, 90)
+        return days_since > validity_days
+
+    @staticmethod
+    def get_active_warnings(employee):
+        """Returns count of active (non-expired) warnings for an employee."""
+        from django.utils import timezone
+        now = timezone.now().date()
+        records = DisciplinaryRecord.objects.filter(
+            employee=employee,
+            status='ACTIVE',
+            action_taken__in=['VERBAL', 'WRITTEN', 'FINAL']
+        )
+        active_count = 0
+        for record in records:
+            validity_map = {'VERBAL': 30, 'WRITTEN': 60, 'FINAL': 90}
+            validity_days = validity_map.get(record.action_taken, 90)
+            if (now - record.date).days <= validity_days:
+                active_count += 1
+        return active_count
+
+    @staticmethod
+    def get_suspension_count_6months(employee):
+        """
+        Count suspensions in the last 6 months.
+        3 suspensions in 6 months = terminable (Constitution Section 3.5).
+        """
+        from datetime import timedelta
+        cutoff = timezone.now().date() - timedelta(days=180)
+        return DisciplinaryRecord.objects.filter(
+            employee=employee,
+            action_taken='SUSPENSION',
+            date__gte=cutoff
+        ).count()
+
+
+class Fine(models.Model):
+    """
+    Financial penalties per Section 4 of the Constitution.
+    Fines are deducted from pay and credited to the Welfare Fund.
+    """
+    FINE_TYPE_CHOICES = [
+        ('VERBAL_ABUSE', 'Verbal Abuse (₦1,500)'),
+        ('THREAT', 'Threats & Intimidation (₦2,000)'),
+        ('FIGHTING', 'Physical Fighting (₦5,000)'),
+        ('ADMIN_THREAT', 'Threat Against Admin Staff (₦5,000)'),
+        ('OTHER', 'Other Fine'),
+    ]
+
+    date = models.DateField(default=timezone.now)
+    employee = models.ForeignKey(
+        Employee, on_delete=models.PROTECT,
+        related_name='fines'
+    )
+    fine_type = models.CharField(max_length=20, choices=FINE_TYPE_CHOICES)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    disciplinary_record = models.OneToOneField(
+        DisciplinaryRecord, on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='fine_record',
+        help_text="Link to the disciplinary record if auto-created"
+    )
+
+    incident_description = models.TextField(
+        help_text="What happened — both parties' accounts"
+    )
+    other_party = models.ForeignKey(
+        Employee, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='fines_as_other_party',
+        help_text="The other worker involved (if applicable)"
+    )
+
+    is_deducted = models.BooleanField(
+        default=False,
+        help_text="Has this fine been deducted from the worker's pay?"
+    )
+    deduction_date = models.DateField(null=True, blank=True)
+
+    issued_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True,
+        related_name='fines_issued',
+        help_text="General Manager"
+    )
+    notes = models.TextField(blank=True)
+    recorded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, editable=False
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+        verbose_name = "Fine (Section 4)"
+        verbose_name_plural = "Fines (Section 4)"
+
+    def __str__(self):
+        return f"{self.date} | {self.employee.name} | ₦{self.amount:,.2f} ({self.get_fine_type_display()})"
+
+    def clean(self):
+        if self.amount is not None and self.amount <= 0:
+            raise ValidationError({'amount': 'Fine amount must be greater than zero.'})
+
+    @staticmethod
+    def get_fine_count_3months(employee):
+        """
+        Three-Strike Rule: 3 fines in 3 months = 2-day suspension.
+        Constitution Section 4.2, Rule 4.
+        """
+        from datetime import timedelta
+        cutoff = timezone.now().date() - timedelta(days=90)
+        return Fine.objects.filter(
+            employee=employee,
+            date__gte=cutoff
+        ).count()
+
+    @staticmethod
+    def get_fine_count_6months(employee):
+        """
+        4th fine in 6 months triggers termination review.
+        Constitution Section 4.2, Rule 4.
+        """
+        from datetime import timedelta
+        cutoff = timezone.now().date() - timedelta(days=180)
+        return Fine.objects.filter(
+            employee=employee,
+            date__gte=cutoff
+        ).count()
+
+
+class WelfareFund(models.Model):
+    """
+    Tracks the collective fund built from worker fines (Section 4).
+    Used to buy drinks/refreshments for the workers at month-end.
+    """
+    month = models.DateField(
+        unique=True,
+        help_text="First day of the month this record covers"
+    )
+    total_fines_collected = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'),
+        editable=False
+    )
+    amount_spent = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00')
+    )
+    spent_description = models.TextField(
+        blank=True,
+        help_text="What was purchased (drinks, food, etc.)"
+    )
+    spent_date = models.DateField(null=True, blank=True)
+    is_disbursed = models.BooleanField(default=False)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-month']
+        verbose_name = "Welfare Fund"
+        verbose_name_plural = "Welfare Fund"
+
+    def __str__(self):
+        return f"{self.month.strftime('%B %Y')} | ₦{self.total_fines_collected:,.2f}"
+
+    @property
+    def balance(self):
+        return self.total_fines_collected - self.amount_spent
+
+    def recalculate(self):
+        """Recalculate total fines for this month from Fine records."""
+        from datetime import timedelta
+        month_start = self.month.replace(day=1)
+        if month_start.month == 12:
+            month_end = month_start.replace(year=month_start.year + 1, month=1)
+        else:
+            month_end = month_start.replace(month=month_start.month + 1)
+
+        total = Fine.objects.filter(
+            date__gte=month_start,
+            date__lt=month_end,
+            is_deducted=True
+        ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+
+        self.total_fines_collected = total
+        self.save(update_fields=['total_fines_collected', 'updated_at'])
+
+
 auditlog.register(User)
 auditlog.register(Material)
 auditlog.register(BlockType)
@@ -2425,3 +2987,10 @@ auditlog.register(Debtor)
 auditlog.register(Loan)
 auditlog.register(LoanRepayment)
 auditlog.register(QuickSale)
+auditlog.register(InterCompanyAccount)
+auditlog.register(CashCollection)
+auditlog.register(CashRepayment)
+auditlog.register(OffenceCategory)
+auditlog.register(DisciplinaryRecord)
+auditlog.register(Fine)
+auditlog.register(WelfareFund)

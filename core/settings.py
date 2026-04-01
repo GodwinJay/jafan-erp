@@ -81,6 +81,53 @@ UNFOLD = {
                 },
             ],
         },
+        {
+            'title': 'Inter-Company',
+            'separator': True,
+            'items': [
+                {
+                    'title': 'Accounts',
+                    'icon': 'account_balance',
+                    'link': '/admin/erp/intercompanyaccount/',
+                },
+                {
+                    'title': 'Collections (from C&C)',
+                    'icon': 'call_received',
+                    'link': '/admin/erp/cashcollection/',
+                },
+                {
+                    'title': 'Repayments (to C&C)',
+                    'icon': 'call_made',
+                    'link': '/admin/erp/cashrepayment/',
+                },
+            ],
+        },
+        {
+            'title': 'HR & Discipline',
+            'separator': True,
+            'items': [
+                {
+                    'title': 'Disciplinary Records',
+                    'icon': 'gavel',
+                    'link': '/admin/erp/disciplinaryrecord/',
+                },
+                {
+                    'title': 'Fines',
+                    'icon': 'money_off',
+                    'link': '/admin/erp/fine/',
+                },
+                {
+                    'title': 'Offence Categories',
+                    'icon': 'category',
+                    'link': '/admin/erp/offencecategory/',
+                },
+                {
+                    'title': 'Welfare Fund',
+                    'icon': 'volunteer_activism',
+                    'link': '/admin/erp/welfarefund/',
+                },
+            ],
+        },
     ],
     'show_all_applications': True,
     'show_search': True,

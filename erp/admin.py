@@ -18,7 +18,10 @@ from .models import (
     Payment, SalesOrder, SalesOrderItem, SupplyLog,
     ReturnLog, CashRefund, BreakageLog, FuelLog, MaintenanceLog,
     TransportAsset, TransportRevenue, BankCharge, AccountTransfer,
-    DailyCashClose, VendorPayment, TeamPayment, SandVehicleType, SandSale, Debtor, Loan, LoanRepayment, QuickSale, QuickSaleItem
+    DailyCashClose, VendorPayment, TeamPayment, SandVehicleType, SandSale,
+    Debtor, Loan, LoanRepayment, QuickSale, QuickSaleItem,
+    InterCompanyAccount, CashCollection, CashRepayment,
+    OffenceCategory, DisciplinaryRecord, Fine, WelfareFund
 )
 
 
@@ -140,6 +143,10 @@ class RestrictedAdmin(ModelAdmin):
             'fuellog',
             # Vendors
             'vendor', 'vendorpayment',
+            # Inter-Company Cash Flow
+            'intercompanyaccount', 'cashcollection', 'cashrepayment',
+            # HR & Discipline
+            'offencecategory', 'disciplinaryrecord', 'fine', 'welfarefund',
             # Reports access (dashboards handled separately)
         ],
         
@@ -1873,3 +1880,389 @@ class QuickSaleItemAdmin(RestrictedAdmin):
     def has_module_permission(self, request):
         """Hide from sidebar - accessed via QuickSale inline only."""
         return False
+
+
+# =============================================================================
+# INTER-COMPANY CASH FLOW ADMIN
+# =============================================================================
+
+@admin.register(InterCompanyAccount)
+class InterCompanyAccountAdmin(RestrictedAdmin):
+    list_display = [
+        'name', 'creditor_company', 'debtor_company',
+        'colored_balance', 'balance_status_display', 'is_active'
+    ]
+    list_filter = ['is_active']
+    search_fields = ['name', 'creditor_company', 'debtor_company']
+    readonly_fields = ['outstanding_balance', 'total_collected_display', 'total_repaid_display']
+
+    fieldsets = (
+        (None, {
+            'fields': ('name', 'creditor_company', 'debtor_company', 'is_active')
+        }),
+        ('Balance Summary', {
+            'fields': ('outstanding_balance', 'total_collected_display', 'total_repaid_display'),
+        }),
+    )
+
+    @admin.display(description="Outstanding Balance")
+    def colored_balance(self, obj):
+        color = '#E24B4A' if obj.outstanding_balance > 0 else '#1D9E75'
+        return format_html(
+            '<span style="color:{}; font-weight:600;">₦{:,.2f}</span>',
+            color, obj.outstanding_balance
+        )
+
+    @admin.display(description="Status")
+    def balance_status_display(self, obj):
+        return obj.balance_status
+
+    @admin.display(description="Total Collected from C&C")
+    def total_collected_display(self, obj):
+        return f"₦{obj.total_collected:,.2f}"
+
+    @admin.display(description="Total Repaid to C&C")
+    def total_repaid_display(self, obj):
+        return f"₦{obj.total_repaid:,.2f}"
+
+
+@admin.register(CashCollection)
+class CashCollectionAdmin(RestrictedAdmin):
+    list_display = [
+        'date', 'formatted_amount', 'purpose', 'employee',
+        'receiving_account', 'running_balance_display'
+    ]
+    list_filter = ['purpose', 'date', 'inter_company_account']
+    search_fields = ['purpose_detail', 'reference', 'employee__name']
+    autocomplete_fields = ['employee', 'receiving_account']
+    date_hierarchy = 'date'
+
+    fieldsets = (
+        (None, {
+            'fields': ('date', 'inter_company_account', 'amount')
+        }),
+        ('Purpose', {
+            'fields': ('purpose', 'purpose_detail', 'employee'),
+            'description': 'Select "Transporter Advance" and link the driver if this cash is for a specific transporter.'
+        }),
+        ('Destination', {
+            'fields': ('receiving_account',)
+        }),
+        ('Reference', {
+            'fields': ('reference', 'notes'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    @admin.display(description="Amount")
+    def formatted_amount(self, obj):
+        return format_html(
+            '<span style="font-weight:600;">₦{:,.2f}</span>', obj.amount
+        )
+
+    @admin.display(description="Running Balance")
+    def running_balance_display(self, obj):
+        bal = obj.inter_company_account.outstanding_balance
+        color = '#E24B4A' if bal > 0 else '#1D9E75'
+        return format_html(
+            '<span style="color:{};">₦{:,.2f}</span>', color, bal
+        )
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.recorded_by = request.user
+        super().save_model(request, obj, form, change)
+
+    class Media:
+        js = ('admin/js/intercompany_purpose.js',)
+
+
+@admin.register(CashRepayment)
+class CashRepaymentAdmin(RestrictedAdmin):
+    list_display = [
+        'date', 'formatted_amount', 'repayment_method',
+        'source_account', 'running_balance_display'
+    ]
+    list_filter = ['repayment_method', 'date', 'inter_company_account']
+    search_fields = ['reference', 'notes']
+    autocomplete_fields = ['source_account']
+    date_hierarchy = 'date'
+
+    fieldsets = (
+        (None, {
+            'fields': ('date', 'inter_company_account', 'amount', 'repayment_method')
+        }),
+        ('Source', {
+            'fields': ('source_account',)
+        }),
+        ('Reference', {
+            'fields': ('reference', 'notes'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    @admin.display(description="Amount")
+    def formatted_amount(self, obj):
+        return format_html(
+            '<span style="color:#1D9E75; font-weight:600;">₦{:,.2f}</span>', obj.amount
+        )
+
+    @admin.display(description="Running Balance")
+    def running_balance_display(self, obj):
+        bal = obj.inter_company_account.outstanding_balance
+        color = '#E24B4A' if bal > 0 else '#1D9E75'
+        return format_html(
+            '<span style="color:{};">₦{:,.2f}</span>', color, bal
+        )
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.recorded_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+# =============================================================================
+# HR DISCIPLINE, PENALTIES & STRIKE TRACKING ADMIN
+# =============================================================================
+
+@admin.register(OffenceCategory)
+class OffenceCategoryAdmin(RestrictedAdmin):
+    list_display = ['name', 'severity', 'colored_severity', 'default_fine_amount', 'is_active']
+    list_filter = ['severity', 'is_active']
+    search_fields = ['name', 'description']
+
+    @admin.display(description="Severity Level")
+    def colored_severity(self, obj):
+        color_map = {
+            'A': '#639922',   # Green - Minor
+            'B': '#BA7517',   # Amber - Moderate
+            'C': '#D85A30',   # Coral - Serious
+            'D': '#E24B4A',   # Red - Terminable
+        }
+        color = color_map.get(obj.severity, '#888780')
+        return format_html(
+            '<span style="color:{}; font-weight:600;">{}</span>',
+            color, obj.get_severity_display()
+        )
+
+
+@admin.register(DisciplinaryRecord)
+class DisciplinaryRecordAdmin(RestrictedAdmin):
+    list_display = [
+        'date', 'employee', 'offence_category', 'colored_action',
+        'pay_deduction_display', 'status', 'escalation_warning'
+    ]
+    list_filter = ['action_taken', 'status', 'offence_category__severity', 'date']
+    search_fields = ['employee__name', 'offence_description', 'notes']
+    autocomplete_fields = ['employee']
+    date_hierarchy = 'date'
+    readonly_fields = ['escalation_info']
+
+    fieldsets = (
+        (None, {
+            'fields': ('date', 'employee', 'offence_category', 'action_taken')
+        }),
+        ('Offence Details', {
+            'fields': ('offence_description',)
+        }),
+        ('Suspension (if applicable)', {
+            'fields': ('suspension_days', 'suspension_start', 'suspension_end'),
+            'classes': ('collapse',)
+        }),
+        ('Financial', {
+            'fields': ('pay_deduction',),
+        }),
+        ('Status & Administration', {
+            'fields': ('status', 'issued_by', 'witness', 'notes')
+        }),
+        ('Escalation Info', {
+            'fields': ('escalation_info',),
+            'description': 'Auto-calculated from employee disciplinary history.'
+        }),
+    )
+
+    @admin.display(description="Action")
+    def colored_action(self, obj):
+        color_map = {
+            'VERBAL': '#639922',
+            'WRITTEN': '#BA7517',
+            'FINAL': '#D85A30',
+            'FINE': '#BA7517',
+            'SUSPENSION': '#E24B4A',
+            'TERMINATION': '#791F1F',
+        }
+        color = color_map.get(obj.action_taken, '#888780')
+        return format_html(
+            '<span style="color:{}; font-weight:600;">{}</span>',
+            color, obj.get_action_taken_display()
+        )
+
+    @admin.display(description="Pay Deduction")
+    def pay_deduction_display(self, obj):
+        if obj.pay_deduction > 0:
+            return format_html(
+                '<span style="color:#E24B4A;">-₦{:,.2f}</span>', obj.pay_deduction
+            )
+        return "-"
+
+    @admin.display(description="Escalation Alert")
+    def escalation_warning(self, obj):
+        """Show warning badges for employees near escalation thresholds."""
+        warnings = DisciplinaryRecord.get_active_warnings(obj.employee)
+        suspensions = DisciplinaryRecord.get_suspension_count_6months(obj.employee)
+        fines_3m = Fine.get_fine_count_3months(obj.employee)
+
+        alerts = []
+        if suspensions >= 2:
+            alerts.append(format_html(
+                '<span style="background:#FCEBEB; color:#791F1F; padding:2px 6px; '
+                'border-radius:4px; font-size:11px;">{} suspensions/6mo</span>',
+                suspensions
+            ))
+        if fines_3m >= 2:
+            alerts.append(format_html(
+                '<span style="background:#FAEEDA; color:#633806; padding:2px 6px; '
+                'border-radius:4px; font-size:11px;">{} fines/3mo</span>',
+                fines_3m
+            ))
+        if warnings >= 2:
+            alerts.append(format_html(
+                '<span style="background:#FAEEDA; color:#633806; padding:2px 6px; '
+                'border-radius:4px; font-size:11px;">{} active warnings</span>',
+                warnings
+            ))
+        return mark_safe(' '.join(alerts)) if alerts else "-"
+
+    @admin.display(description="Escalation Summary")
+    def escalation_info(self, obj):
+        """Readonly field showing full escalation context."""
+        if not obj.pk:
+            return "Save first to see escalation data."
+
+        emp = obj.employee
+        warnings = DisciplinaryRecord.get_active_warnings(emp)
+        suspensions = DisciplinaryRecord.get_suspension_count_6months(emp)
+        fines_3m = Fine.get_fine_count_3months(emp)
+        fines_6m = Fine.get_fine_count_6months(emp)
+
+        lines = [
+            f"Active warnings: {warnings}",
+            f"Suspensions (last 6 months): {suspensions} {'⚠ TERMINATION THRESHOLD at 3' if suspensions >= 2 else ''}",
+            f"Fines (last 3 months): {fines_3m} {'⚠ SUSPENSION TRIGGERED at 3' if fines_3m >= 2 else ''}",
+            f"Fines (last 6 months): {fines_6m} {'⚠ TERMINATION REVIEW at 4' if fines_6m >= 3 else ''}",
+        ]
+        return format_html('<br>'.join(lines))
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.recorded_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(Fine)
+class FineAdmin(RestrictedAdmin):
+    list_display = [
+        'date', 'employee', 'fine_type', 'formatted_amount',
+        'other_party', 'is_deducted', 'strike_count_display'
+    ]
+    list_filter = ['fine_type', 'is_deducted', 'date']
+    search_fields = ['employee__name', 'incident_description', 'other_party__name']
+    autocomplete_fields = ['employee', 'other_party', 'disciplinary_record']
+    date_hierarchy = 'date'
+
+    fieldsets = (
+        (None, {
+            'fields': ('date', 'employee', 'fine_type', 'amount')
+        }),
+        ('Incident', {
+            'fields': ('incident_description', 'other_party'),
+            'description': 'For fighting: BOTH parties must be fined. Create a separate Fine record for each worker.'
+        }),
+        ('Deduction', {
+            'fields': ('is_deducted', 'deduction_date'),
+        }),
+        ('Administration', {
+            'fields': ('disciplinary_record', 'issued_by', 'notes'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    @admin.display(description="Amount")
+    def formatted_amount(self, obj):
+        return format_html(
+            '<span style="color:#E24B4A; font-weight:600;">₦{:,.2f}</span>',
+            obj.amount
+        )
+
+    @admin.display(description="Strike Count (3mo)")
+    def strike_count_display(self, obj):
+        count = Fine.get_fine_count_3months(obj.employee)
+        if count >= 3:
+            return format_html(
+                '<span style="background:#FCEBEB; color:#791F1F; padding:2px 8px; '
+                'border-radius:4px; font-weight:600;">{}/3 — SUSPEND</span>',
+                count
+            )
+        elif count == 2:
+            return format_html(
+                '<span style="background:#FAEEDA; color:#633806; padding:2px 8px; '
+                'border-radius:4px; font-weight:600;">{}/3 — WARNING</span>',
+                count
+            )
+        return f"{count}/3"
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.recorded_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(WelfareFund)
+class WelfareFundAdmin(RestrictedAdmin):
+    list_display = [
+        'month_display', 'formatted_fines', 'formatted_spent',
+        'formatted_balance', 'is_disbursed'
+    ]
+    list_filter = ['is_disbursed']
+    readonly_fields = ['total_fines_collected']
+    actions = ['recalculate_fines']
+
+    fieldsets = (
+        (None, {
+            'fields': ('month', 'total_fines_collected')
+        }),
+        ('Disbursement', {
+            'fields': ('amount_spent', 'spent_description', 'spent_date', 'is_disbursed'),
+        }),
+        ('Notes', {
+            'fields': ('notes',),
+            'classes': ('collapse',)
+        }),
+    )
+
+    @admin.display(description="Month")
+    def month_display(self, obj):
+        return obj.month.strftime('%B %Y')
+
+    @admin.display(description="Fines Collected")
+    def formatted_fines(self, obj):
+        return f"₦{obj.total_fines_collected:,.2f}"
+
+    @admin.display(description="Amount Spent")
+    def formatted_spent(self, obj):
+        return f"₦{obj.amount_spent:,.2f}"
+
+    @admin.display(description="Balance")
+    def formatted_balance(self, obj):
+        bal = obj.balance
+        color = '#1D9E75' if bal > 0 else '#888780'
+        return format_html(
+            '<span style="color:{}; font-weight:600;">₦{:,.2f}</span>',
+            color, bal
+        )
+
+    @admin.action(description="Recalculate fines from Fine records")
+    def recalculate_fines(self, request, queryset):
+        for fund in queryset:
+            fund.recalculate()
+        messages.success(request, f"Recalculated fines for {queryset.count()} month(s).")
