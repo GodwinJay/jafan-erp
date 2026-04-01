@@ -2395,6 +2395,7 @@ class InterCompanyAccount(models.Model):
     """
     Tracks liability between two sister companies.
     Positive balance = Block Industry owes C&C Frozen Food.
+    Negative balance = C&C owes Block Industry.
     """
     name = models.CharField(
         max_length=100, unique=True,
@@ -2408,9 +2409,18 @@ class InterCompanyAccount(models.Model):
         max_length=100, default="Jafan Standard Block Industry",
         help_text="Company receiving the cash (borrower)"
     )
+    opening_balance = models.DecimalField(
+        max_digits=14, decimal_places=2, default=Decimal('0.00'),
+        help_text="Starting debt BEFORE using this system. "
+                  "Positive = Block Industry already owes C&C. "
+                  "Negative = C&C owes Block Industry. "
+                  "Enter 0 if starting fresh."
+    )
     outstanding_balance = models.DecimalField(
         max_digits=14, decimal_places=2, default=Decimal('0.00'),
-        help_text="Current amount owed. Positive = debtor owes creditor."
+        help_text="Auto-calculated: Opening Balance + Collections − Repayments. "
+                  "Positive = Block Industry owes C&C. "
+                  "Negative = C&C owes Block Industry."
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -2423,13 +2433,19 @@ class InterCompanyAccount(models.Model):
     def __str__(self):
         return f"{self.name} | Balance: ₦{self.outstanding_balance:,.2f}"
 
+    def save(self, *args, **kwargs):
+        # On first creation, set outstanding_balance to opening_balance
+        if not self.pk:
+            self.outstanding_balance = self.opening_balance
+        super().save(*args, **kwargs)
+
     @property
     def balance_status(self):
         if self.outstanding_balance > 0:
-            return f"{self.debtor_company} owes ₦{self.outstanding_balance:,.2f}"
+            return f"Block Industry owes C&C  →  ₦{self.outstanding_balance:,.2f}"
         elif self.outstanding_balance < 0:
-            return f"{self.creditor_company} owes ₦{abs(self.outstanding_balance):,.2f}"
-        return "Settled"
+            return f"C&C owes Block Industry  →  ₦{abs(self.outstanding_balance):,.2f}"
+        return "✓ Fully Settled"
 
     @property
     def total_collected(self):

@@ -1889,32 +1889,59 @@ class QuickSaleItemAdmin(RestrictedAdmin):
 @admin.register(InterCompanyAccount)
 class InterCompanyAccountAdmin(RestrictedAdmin):
     list_display = [
-        'name', 'creditor_company', 'debtor_company',
-        'colored_balance', 'balance_status_display', 'is_active'
+        'name', 'colored_balance', 'who_owes_whom', 'is_active'
     ]
     list_filter = ['is_active']
     search_fields = ['name', 'creditor_company', 'debtor_company']
-    readonly_fields = ['outstanding_balance', 'total_collected_display', 'total_repaid_display']
+    readonly_fields = ['outstanding_balance', 'who_owes_whom_detail', 'total_collected_display', 'total_repaid_display']
 
     fieldsets = (
         (None, {
             'fields': ('name', 'creditor_company', 'debtor_company', 'is_active')
         }),
-        ('Balance Summary', {
-            'fields': ('outstanding_balance', 'total_collected_display', 'total_repaid_display'),
+        ('Opening Balance', {
+            'fields': ('opening_balance',),
+            'description': (
+                'Set this ONCE when creating the account. '
+                'Enter the amount Block Industry already owes C&C before today. '
+                'Example: If Block Industry owes C&C ₦500,000, enter 500000. '
+                'If C&C owes Block Industry ₦200,000, enter -200000. '
+                'If starting fresh with no prior debt, leave as 0.'
+            ),
+        }),
+        ('Live Balance (auto-calculated — do not edit)', {
+            'fields': ('outstanding_balance', 'who_owes_whom_detail', 'total_collected_display', 'total_repaid_display'),
         }),
     )
 
     @admin.display(description="Outstanding Balance")
     def colored_balance(self, obj):
-        color = '#E24B4A' if obj.outstanding_balance > 0 else '#1D9E75'
-        return format_html(
-            '<span style="color:{}; font-weight:600;">₦{:,.2f}</span>',
-            color, obj.outstanding_balance
-        )
+        if obj.outstanding_balance > 0:
+            return format_html(
+                '<span style="color:#E24B4A; font-weight:600;">₦{:,.2f}</span>',
+                obj.outstanding_balance
+            )
+        elif obj.outstanding_balance < 0:
+            return format_html(
+                '<span style="color:#1D9E75; font-weight:600;">-₦{:,.2f}</span>',
+                abs(obj.outstanding_balance)
+            )
+        return format_html('<span style="color:#1D9E75; font-weight:600;">₦0.00 ✓</span>')
+
+    @admin.display(description="Who Owes Whom")
+    def who_owes_whom(self, obj):
+        if obj.outstanding_balance > 0:
+            return format_html(
+                '<span style="color:#E24B4A; font-weight:500;">⬆ Block Industry owes C&C</span>'
+            )
+        elif obj.outstanding_balance < 0:
+            return format_html(
+                '<span style="color:#1D9E75; font-weight:500;">⬇ C&C owes Block Industry</span>'
+            )
+        return format_html('<span style="color:#639922;">✓ Settled</span>')
 
     @admin.display(description="Status")
-    def balance_status_display(self, obj):
+    def who_owes_whom_detail(self, obj):
         return obj.balance_status
 
     @admin.display(description="Total Collected from C&C")
