@@ -2009,7 +2009,7 @@ class CashCollectionAdmin(RestrictedAdmin):
         bal = obj.inter_company_account.outstanding_balance
         color = '#E24B4A' if bal > 0 else '#1D9E75'
         return format_html(
-            '<span style="color:{};">₦{:,.2f}</span>', color, bal
+            '<span style="color:{};">₦{}</span>', color, f'{bal:,.2f}'
         )
 
     def save_model(self, request, obj, form, change):
@@ -2059,7 +2059,7 @@ class CashRepaymentAdmin(RestrictedAdmin):
         bal = obj.inter_company_account.outstanding_balance
         color = '#E24B4A' if bal > 0 else '#1D9E75'
         return format_html(
-            '<span style="color:{};">₦{:,.2f}</span>', color, bal
+            '<span style="color:{};">₦{}</span>', color, f'{bal:,.2f}'
         )
 
     def save_model(self, request, obj, form, change):
