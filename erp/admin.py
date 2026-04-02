@@ -1998,7 +1998,8 @@ class CashCollectionAdmin(RestrictedAdmin):
     @admin.display(description="Amount")
     def formatted_amount(self, obj):
         return format_html(
-            '<span style="font-weight:600;">₦{:,.2f}</span>', obj.amount
+            '<span style="font-weight:600;">{}</span>',
+            f'₦{obj.amount:,.2f}'
         )
 
     @admin.display(description="Running Balance")
@@ -2047,7 +2048,8 @@ class CashRepaymentAdmin(RestrictedAdmin):
     @admin.display(description="Amount")
     def formatted_amount(self, obj):
         return format_html(
-            '<span style="color:#1D9E75; font-weight:600;">₦{:,.2f}</span>', obj.amount
+            '<span style="color:#1D9E75; font-weight:600;">{}</span>',
+            f'₦{obj.amount:,.2f}'
         )
 
     @admin.display(description="Running Balance")
