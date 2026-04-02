@@ -2003,6 +2003,8 @@ class CashCollectionAdmin(RestrictedAdmin):
 
     @admin.display(description="Running Balance")
     def running_balance_display(self, obj):
+        if not obj.inter_company_account_id:
+            return "-"
         bal = obj.inter_company_account.outstanding_balance
         color = '#E24B4A' if bal > 0 else '#1D9E75'
         return format_html(
@@ -2050,6 +2052,8 @@ class CashRepaymentAdmin(RestrictedAdmin):
 
     @admin.display(description="Running Balance")
     def running_balance_display(self, obj):
+        if not obj.inter_company_account_id:
+            return "-"
         bal = obj.inter_company_account.outstanding_balance
         color = '#E24B4A' if bal > 0 else '#1D9E75'
         return format_html(
