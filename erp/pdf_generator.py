@@ -3639,3 +3639,141 @@ class QuickSaleReceiptGenerator(PDFGenerator):
         
         doc.build(elements)
         return self._create_response(buffer, f'QuickSale_QS-{sale.pk:05d}.pdf')
+
+
+class GateLogSlipGenerator(PDFGenerator):
+    """
+    Generate compact gate log slip for thermal printer / half-A5.
+    Designed to be small, fast to print, and easy for security to read.
+    Width: 80mm (standard thermal printer width).
+    """
+
+    def generate(self, gate_log):
+        from .models import GateLog
+
+        register_unicode_font()
+        buffer = io.BytesIO()
+
+        # 80mm wide thermal slip — height adjusts to content
+        page_width = 80 * mm
+        page_height = 160 * mm
+        doc = SimpleDocTemplate(
+            buffer, pagesize=(page_width, page_height),
+            topMargin=5 * mm, bottomMargin=5 * mm,
+            leftMargin=4 * mm, rightMargin=4 * mm
+        )
+        content_width = page_width - 8 * mm
+        elements = []
+
+        # Styles
+        styles = getSampleStyleSheet()
+        style_center = ParagraphStyle('SlipCenter', parent=styles['Normal'],
+            fontName=UNICODE_FONT_BOLD, fontSize=9, alignment=TA_CENTER, leading=11)
+        style_center_small = ParagraphStyle('SlipCenterSm', parent=styles['Normal'],
+            fontName=UNICODE_FONT, fontSize=7, alignment=TA_CENTER, leading=9)
+        style_big = ParagraphStyle('SlipBig', parent=styles['Normal'],
+            fontName=UNICODE_FONT_BOLD, fontSize=14, alignment=TA_CENTER, leading=16)
+        style_label = ParagraphStyle('SlipLabel', parent=styles['Normal'],
+            fontName=UNICODE_FONT, fontSize=7, alignment=TA_LEFT, leading=9,
+            textColor=colors.HexColor('#666666'))
+        style_value = ParagraphStyle('SlipValue', parent=styles['Normal'],
+            fontName=UNICODE_FONT_BOLD, fontSize=9, alignment=TA_LEFT, leading=11)
+
+        # === Header ===
+        elements.append(Paragraph("JAFAN STANDARD BLOCK INDUSTRY", style_center))
+        elements.append(Paragraph("Otukpo, Benue State", style_center_small))
+        elements.append(Spacer(1, 2 * mm))
+        elements.append(HRFlowable(width=content_width, thickness=1, color=colors.black))
+        elements.append(Spacer(1, 2 * mm))
+
+        # === Gate Number (big and bold) ===
+        elements.append(Paragraph(f"GL-{gate_log.gate_number:05d}", style_big))
+        elements.append(Spacer(1, 1 * mm))
+        elements.append(Paragraph("GATE PASS", style_center))
+        elements.append(Spacer(1, 2 * mm))
+        elements.append(HRFlowable(width=content_width, thickness=0.5, color=colors.HexColor('#CCCCCC')))
+        elements.append(Spacer(1, 2 * mm))
+
+        # === Details as label/value pairs ===
+        def add_row(label, value):
+            data = [[
+                Paragraph(label, style_label),
+                Paragraph(str(value), style_value)
+            ]]
+            t = Table(data, colWidths=[22 * mm, content_width - 22 * mm])
+            t.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('TOPPADDING', (0, 0), (-1, -1), 1),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+            ]))
+            elements.append(t)
+
+        add_row("Date:", gate_log.date.strftime('%d/%m/%Y'))
+        add_row("Time:", gate_log.time.strftime('%I:%M %p') if gate_log.time else '-')
+        add_row("Type:", gate_log.get_log_type_display())
+
+        if gate_log.reference_number != 'N/A':
+            add_row("Ref:", gate_log.reference_number)
+
+        elements.append(Spacer(1, 2 * mm))
+        elements.append(HRFlowable(width=content_width, thickness=0.5, color=colors.HexColor('#CCCCCC')))
+        elements.append(Spacer(1, 2 * mm))
+
+        # === Item details (prominent) ===
+        elements.append(Paragraph("ITEMS", style_label))
+        elements.append(Paragraph(gate_log.item_description, style_value))
+        elements.append(Spacer(1, 1 * mm))
+
+        # Quantity — large and clear for security
+        qty_style = ParagraphStyle('SlipQty', parent=styles['Normal'],
+            fontName=UNICODE_FONT_BOLD, fontSize=16, alignment=TA_CENTER, leading=18)
+        elements.append(Paragraph(
+            f"{gate_log.quantity} {gate_log.get_unit_display()}",
+            qty_style
+        ))
+        elements.append(Spacer(1, 2 * mm))
+        elements.append(HRFlowable(width=content_width, thickness=0.5, color=colors.HexColor('#CCCCCC')))
+        elements.append(Spacer(1, 2 * mm))
+
+        # === People & Vehicle ===
+        add_row("Receiver:", gate_log.receiver_name)
+        if gate_log.vehicle_description:
+            add_row("Vehicle:", gate_log.vehicle_description)
+        add_row("Auth by:", gate_log.authorized_by.get_full_name() or gate_log.authorized_by.username)
+
+        elements.append(Spacer(1, 2 * mm))
+        elements.append(HRFlowable(width=content_width, thickness=0.5, color=colors.HexColor('#CCCCCC')))
+        elements.append(Spacer(1, 2 * mm))
+
+        # === Security verification section ===
+        elements.append(Paragraph("SECURITY VERIFICATION", style_center_small))
+        elements.append(Spacer(1, 3 * mm))
+
+        verify_data = [
+            [Paragraph("Count OK:", style_label), Paragraph("☐  Yes    ☐  No", style_value)],
+            [Paragraph("Guard:", style_label), Paragraph("_________________", style_value)],
+            [Paragraph("Time:", style_label), Paragraph("_________________", style_value)],
+        ]
+        verify_table = Table(verify_data, colWidths=[18 * mm, content_width - 18 * mm])
+        verify_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ]))
+        elements.append(verify_table)
+
+        if gate_log.remarks:
+            elements.append(Spacer(1, 2 * mm))
+            elements.append(Paragraph(f"Note: {gate_log.remarks}", style_center_small))
+
+        elements.append(Spacer(1, 3 * mm))
+        elements.append(HRFlowable(width=content_width, thickness=1, color=colors.black))
+        elements.append(Spacer(1, 1 * mm))
+        elements.append(Paragraph("Nothing leaves without a gate log.", style_center_small))
+
+        doc.build(elements)
+        return self._create_response(buffer, f'GateLog_GL-{gate_log.gate_number:05d}.pdf')

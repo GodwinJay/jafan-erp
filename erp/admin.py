@@ -21,7 +21,8 @@ from .models import (
     DailyCashClose, VendorPayment, TeamPayment, SandVehicleType, SandSale,
     Debtor, Loan, LoanRepayment, QuickSale, QuickSaleItem,
     InterCompanyAccount, CashCollection, CashRepayment,
-    OffenceCategory, DisciplinaryRecord, Fine, WelfareFund
+    OffenceCategory, DisciplinaryRecord, Fine, WelfareFund,
+    GateLog
 )
 
 
@@ -132,6 +133,8 @@ class RestrictedAdmin(ModelAdmin):
             'loan', 'loanrepayment', 'debtor',
             # Transport Dashboard (view trips)
             'transportrevenue',
+            # Gate Log
+            'gatelog',
         ],
         
         'SITE_MANAGER': [
@@ -147,6 +150,8 @@ class RestrictedAdmin(ModelAdmin):
             'intercompanyaccount', 'cashcollection', 'cashrepayment',
             # HR & Discipline
             'offencecategory', 'disciplinaryrecord', 'fine', 'welfarefund',
+            # Gate Log
+            'gatelog',
             # Reports access (dashboards handled separately)
         ],
         
@@ -155,6 +160,8 @@ class RestrictedAdmin(ModelAdmin):
             'cashrefund', 'returnlog',
             # Expenses & Cash
             'expense', 'expensecategory', 'paymentaccount',
+            # Gate Log
+            'gatelog',
         ],
         
         'TRANSPORT': [
@@ -165,6 +172,8 @@ class RestrictedAdmin(ModelAdmin):
             'employee',
             # Vendor payments (spare parts)
             'vendor', 'vendorpayment',
+            # Gate Log
+            'gatelog',
         ],
     }
     
@@ -2313,3 +2322,167 @@ class WelfareFundAdmin(RestrictedAdmin):
         for fund in queryset:
             fund.recalculate()
         messages.success(request, f"Recalculated fines for {queryset.count()} month(s).")
+
+
+# =============================================================================
+# GATE LOG — SECURITY DISPATCH TRACKING
+# =============================================================================
+
+@admin.register(GateLog)
+class GateLogAdmin(RestrictedAdmin):
+    list_display = [
+        'gate_number_display', 'date', 'colored_type', 'item_description',
+        'quantity', 'unit', 'receiver_name', 'vehicle_description',
+        'verification_badge', 'reference_display', 'print_slip'
+    ]
+    list_filter = ['log_type', 'is_verified', 'date']
+    search_fields = [
+        'item_description', 'receiver_name', 'vehicle_description',
+        'remarks', 'supply_log__customer__name', 'quick_sale__buyer_name'
+    ]
+    date_hierarchy = 'date'
+    readonly_fields = [
+        'gate_number', 'reference_display', 'dispatch_summary_display',
+        'verified_at'
+    ]
+
+    fieldsets = (
+        ('Gate Log', {
+            'fields': ('date', 'gate_number', 'log_type'),
+        }),
+        ('Linked Sale (select one based on type)', {
+            'fields': ('supply_log', 'quick_sale', 'sand_sale'),
+            'description': (
+                'For Block Sale: select the invoice. '
+                'For Quick Sale: select the quick sale. '
+                'For Sand Sale: select the sand sale. '
+                'For Non-Sale: leave all blank.'
+            ),
+        }),
+        ('Item Details', {
+            'fields': ('item_description', 'quantity', 'unit'),
+        }),
+        ('Dispatch Info', {
+            'fields': ('receiver_name', 'vehicle_description', 'authorized_by'),
+        }),
+        ('Security Verification', {
+            'fields': ('is_verified', 'verified_by', 'verified_at'),
+        }),
+        ('Dispatch Summary', {
+            'fields': ('dispatch_summary_display',),
+        }),
+        ('Remarks', {
+            'fields': ('remarks',),
+            'classes': ('collapse',),
+        }),
+    )
+
+    @admin.display(description="GL #")
+    def gate_number_display(self, obj):
+        return format_html(
+            '<span style="font-weight:600;">{}</span>',
+            f'GL-{obj.gate_number:05d}'
+        )
+
+    @admin.display(description="Type")
+    def colored_type(self, obj):
+        color_map = {
+            'BLOCK_SALE': '#185FA5',
+            'QUICK_SALE': '#1D9E75',
+            'SAND_SALE': '#BA7517',
+            'NON_SALE': '#888780',
+        }
+        color = color_map.get(obj.log_type, '#888780')
+        return format_html(
+            '<span style="color:{}; font-weight:500;">{}</span>',
+            color, obj.get_log_type_display()
+        )
+
+    @admin.display(description="Ref #")
+    def reference_display(self, obj):
+        if not obj.pk:
+            return "-"
+        return obj.reference_number
+
+    @admin.display(description="Verified")
+    def verification_badge(self, obj):
+        if obj.is_verified:
+            name = obj.verified_by.name if obj.verified_by else 'Unknown'
+            return format_html(
+                '<span style="background:#EAF3DE; color:#27500A; padding:2px 8px; '
+                'border-radius:4px; font-size:11px;">✓ {}</span>',
+                name
+            )
+        return format_html(
+            '<span style="background:#FAEEDA; color:#633806; padding:2px 8px; '
+            'border-radius:4px; font-size:11px;">Pending</span>'
+        )
+
+    @admin.display(description="Dispatch Status")
+    def dispatch_summary_display(self, obj):
+        if not obj.pk:
+            return "Save first to see dispatch status."
+        if obj.log_type == 'BLOCK_SALE' and obj.supply_log_id:
+            summary = GateLog.get_dispatch_summary(obj.supply_log)
+            pct = int((summary['total_dispatched'] / summary['invoice_quantity'] * 100)) if summary['invoice_quantity'] > 0 else 0
+            color = '#1D9E75' if summary['is_fully_dispatched'] else '#BA7517'
+            return format_html(
+                '<span style="color:{}; font-weight:500;">'
+                'Invoice: {} blocks | Dispatched: {} | Remaining: {} | {}%'
+                '</span>',
+                color,
+                summary['invoice_quantity'],
+                summary['total_dispatched'],
+                summary['remaining'],
+                pct
+            )
+        if obj.log_type == 'QUICK_SALE' and obj.quick_sale_id:
+            qs = obj.quick_sale
+            if qs.items.exists():
+                invoice_qty = qs.items.aggregate(total=Sum('quantity'))['total'] or 0
+            else:
+                invoice_qty = qs.quantity or 0
+            dispatched = GateLog.objects.filter(quick_sale=qs).aggregate(
+                total=Sum('quantity'))['total'] or 0
+            remaining = invoice_qty - dispatched
+            return format_html(
+                'Sale: {} | Dispatched: {} | Remaining: {}',
+                invoice_qty, dispatched, remaining
+            )
+        if obj.log_type == 'SAND_SALE' and obj.sand_sale_id:
+            ss = obj.sand_sale
+            dispatched = GateLog.objects.filter(sand_sale=ss).aggregate(
+                total=Sum('quantity'))['total'] or 0
+            remaining = ss.quantity - dispatched
+            return format_html(
+                'Sale: {} trips | Dispatched: {} | Remaining: {}',
+                ss.quantity, dispatched, remaining
+            )
+        return "Non-sale item"
+
+    def get_changeform_initial_data(self, request):
+        """Pre-fill authorized_by with the logged-in user."""
+        return {'authorized_by': request.user.pk}
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.recorded_by = request.user
+            obj.authorized_by = request.user
+        super().save_model(request, obj, form, change)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            'supply_log', 'supply_log__customer', 'supply_log__block_type',
+            'quick_sale', 'sand_sale', 'sand_sale__vehicle_type',
+            'authorized_by', 'verified_by', 'recorded_by'
+        )
+
+    @admin.display(description="Slip")
+    def print_slip(self, obj):
+        if not obj.pk:
+            return "-"
+        url = reverse('generate_gate_log_slip', args=[obj.pk])
+        return format_html(
+            '<a href="{}" target="_blank" style="color:#185FA5; font-weight:500;">Print</a>',
+            url
+        )

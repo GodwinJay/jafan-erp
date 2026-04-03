@@ -81,4 +81,7 @@ urlpatterns = [
 
     # Quick Sale Receipt
     path('pdf/quick-sale-receipt/<int:sale_id>/', views.generate_quick_sale_receipt, name='generate_quick_sale_receipt'),
+
+    # Gate Log Slip
+    path('pdf/gate-log/<int:log_id>/', views.generate_gate_log_slip, name='generate_gate_log_slip'),
 ]

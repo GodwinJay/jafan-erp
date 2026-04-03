@@ -82,6 +82,17 @@ UNFOLD = {
             ],
         },
         {
+            'title': 'Gate Security',
+            'separator': True,
+            'items': [
+                {
+                    'title': 'Gate Logs',
+                    'icon': 'security',
+                    'link': '/admin/erp/gatelog/',
+                },
+            ],
+        },
+        {
             'title': 'Inter-Company',
             'separator': True,
             'items': [

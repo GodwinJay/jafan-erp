@@ -2965,6 +2965,277 @@ class WelfareFund(models.Model):
         self.save(update_fields=['total_fines_collected', 'updated_at'])
 
 
+
+# ==============================================================================
+# 13. Gate Log — Security Dispatch Tracking
+# ==============================================================================
+
+class GateLog(models.Model):
+    """
+    Tracks every item that leaves the premises through the security gate.
+    
+    For sale items: links to SupplyLog, QuickSale, or SandSale.
+    For non-sale items: standalone with description (equipment, bags, diesel, etc.)
+    
+    Flow:
+    1. Staff creates GateLog when loading is done (auto-generates gate number)
+    2. Slip is printed and given to security
+    3. Security verifies count at the gate and marks as verified
+    
+    Hard block: quantity across all gate logs for a single invoice cannot exceed
+    the invoice quantity. Only ADMIN can override.
+    """
+    LOG_TYPE_CHOICES = [
+        ('BLOCK_SALE', 'Block Sale (Invoice)'),
+        ('QUICK_SALE', 'Quick Sale'),
+        ('SAND_SALE', 'Sand Sale'),
+        ('NON_SALE', 'Non-Sale Item'),
+    ]
+    UNIT_CHOICES = [
+        ('BLOCKS', 'Blocks'),
+        ('BAGS', 'Bags'),
+        ('LITRES', 'Litres'),
+        ('PIECES', 'Pieces'),
+        ('TRIPS', 'Trips'),
+        ('OTHER', 'Other'),
+    ]
+
+    # Auto-incrementing gate log number (GL-00001)
+    gate_number = models.PositiveIntegerField(unique=True, editable=False)
+
+    date = models.DateField(default=timezone.now)
+    time = models.TimeField(auto_now_add=True)
+    log_type = models.CharField(max_length=15, choices=LOG_TYPE_CHOICES, default='BLOCK_SALE')
+
+    # === Sale links (nullable — only one should be set, or none for NON_SALE) ===
+    supply_log = models.ForeignKey(
+        'SupplyLog', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='gate_logs',
+        help_text="Link to block sale invoice (SupplyLog)"
+    )
+    quick_sale = models.ForeignKey(
+        'QuickSale', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='gate_logs',
+        help_text="Link to quick sale"
+    )
+    sand_sale = models.ForeignKey(
+        'SandSale', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='gate_logs',
+        help_text="Link to sand sale"
+    )
+
+    # === Item details ===
+    item_description = models.CharField(
+        max_length=200,
+        help_text="Auto-filled from linked sale, or enter manually for non-sale items"
+    )
+    quantity = models.PositiveIntegerField(
+        default=1,
+        help_text="Number of items leaving (blocks, bags, pieces, etc.)"
+    )
+    unit = models.CharField(max_length=10, choices=UNIT_CHOICES, default='BLOCKS')
+
+    # === People & Vehicle ===
+    authorized_by = models.ForeignKey(
+        User, on_delete=models.PROTECT,
+        related_name='gate_logs_authorized',
+        help_text="Staff who authorized this dispatch (auto-set to logged-in user)"
+    )
+    receiver_name = models.CharField(
+        max_length=100,
+        help_text="Person carrying/receiving the items (driver name, customer name, etc.)"
+    )
+    vehicle_description = models.CharField(
+        max_length=150, blank=True,
+        help_text="e.g. 'White Hijet', 'Omaba - 608', 'Customer Hilux - ABJ-234'"
+    )
+
+    # === Security verification ===
+    is_verified = models.BooleanField(
+        default=False,
+        help_text="Security guard confirms items match gate log"
+    )
+    verified_by = models.ForeignKey(
+        Employee, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='gate_verifications',
+        limit_choices_to={'role': 'SECURITY'},
+        help_text="Security guard who verified at the gate"
+    )
+    verified_at = models.DateTimeField(null=True, blank=True, editable=False)
+
+    # === Admin override for over-dispatch ===
+    is_override = models.BooleanField(
+        default=False, editable=False,
+        help_text="True if this log was created despite exceeding invoice quantity"
+    )
+
+    remarks = models.TextField(blank=True)
+    recorded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, editable=False
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', '-time', '-gate_number']
+        verbose_name = "Gate Log"
+        verbose_name_plural = "Gate Logs"
+
+    def __str__(self):
+        return f"GL-{self.gate_number:05d} | {self.item_description} ({self.quantity} {self.get_unit_display()})"
+
+    @property
+    def gate_number_display(self):
+        return f"GL-{self.gate_number:05d}"
+
+    @property
+    def reference_number(self):
+        """Returns the linked sale reference number for display on the slip."""
+        if self.supply_log_id:
+            return f"INV-{self.supply_log.pk:05d}"
+        elif self.quick_sale_id:
+            return f"QS-{self.quick_sale.pk:05d}"
+        elif self.sand_sale_id:
+            return f"SND-{self.sand_sale.pk:05d}"
+        return "N/A"
+
+    @property
+    def verification_status(self):
+        if self.is_verified:
+            return f"Verified by {self.verified_by.name if self.verified_by else 'Unknown'}"
+        return "Pending"
+
+    def clean(self):
+        # Validate that the correct FK is set for the log type
+        if self.log_type == 'BLOCK_SALE' and not self.supply_log:
+            raise ValidationError({'supply_log': 'You must select an invoice (Supply Log) for Block Sale type.'})
+        if self.log_type == 'QUICK_SALE' and not self.quick_sale:
+            raise ValidationError({'quick_sale': 'You must select a Quick Sale for Quick Sale type.'})
+        if self.log_type == 'SAND_SALE' and not self.sand_sale:
+            raise ValidationError({'sand_sale': 'You must select a Sand Sale for Sand Sale type.'})
+        if self.log_type == 'NON_SALE' and not self.item_description:
+            raise ValidationError({'item_description': 'Item description is required for Non-Sale items.'})
+
+        # Hard block: check dispatch doesn't exceed invoice quantity
+        if self.log_type == 'BLOCK_SALE' and self.supply_log:
+            already_dispatched = GateLog.objects.filter(
+                supply_log=self.supply_log
+            ).exclude(pk=self.pk).aggregate(
+                total=Sum('quantity')
+            )['total'] or 0
+
+            available = self.supply_log.quantity_delivered - already_dispatched
+            if self.quantity > available:
+                raise ValidationError({
+                    'quantity': (
+                        f"Cannot dispatch {self.quantity} blocks. "
+                        f"Invoice has {self.supply_log.quantity_delivered} delivered, "
+                        f"{already_dispatched} already dispatched, "
+                        f"{available} remaining. "
+                        f"Only Admin can override this."
+                    )
+                })
+
+        if self.log_type == 'QUICK_SALE' and self.quick_sale:
+            already_dispatched = GateLog.objects.filter(
+                quick_sale=self.quick_sale
+            ).exclude(pk=self.pk).aggregate(
+                total=Sum('quantity')
+            )['total'] or 0
+
+            # For multi-item quick sales, use total quantity from items
+            qs = self.quick_sale
+            if qs.items.exists():
+                invoice_qty = qs.items.aggregate(total=Sum('quantity'))['total'] or 0
+            else:
+                invoice_qty = qs.quantity or 0
+
+            available = invoice_qty - already_dispatched
+            if self.quantity > available:
+                raise ValidationError({
+                    'quantity': (
+                        f"Cannot dispatch {self.quantity}. "
+                        f"Quick Sale has {invoice_qty} total, "
+                        f"{already_dispatched} already dispatched, "
+                        f"{available} remaining."
+                    )
+                })
+
+        if self.log_type == 'SAND_SALE' and self.sand_sale:
+            already_dispatched = GateLog.objects.filter(
+                sand_sale=self.sand_sale
+            ).exclude(pk=self.pk).aggregate(
+                total=Sum('quantity')
+            )['total'] or 0
+
+            available = self.sand_sale.quantity - already_dispatched
+            if self.quantity > available:
+                raise ValidationError({
+                    'quantity': (
+                        f"Cannot dispatch {self.quantity}. "
+                        f"Sand Sale has {self.sand_sale.quantity} trips, "
+                        f"{already_dispatched} already dispatched, "
+                        f"{available} remaining."
+                    )
+                })
+
+    def save(self, *args, **kwargs):
+        # Auto-assign gate number on creation
+        if not self.pk:
+            last = GateLog.objects.order_by('-gate_number').first()
+            self.gate_number = (last.gate_number + 1) if last else 1
+
+        # Auto-fill item description from linked sale
+        if self.log_type == 'BLOCK_SALE' and self.supply_log and not self.item_description:
+            sl = self.supply_log
+            self.item_description = f"{sl.block_type.name} → {sl.customer.name}"
+            self.unit = 'BLOCKS'
+
+        if self.log_type == 'QUICK_SALE' and self.quick_sale and not self.item_description:
+            qs = self.quick_sale
+            if qs.items.exists():
+                items_desc = ', '.join(
+                    f"{item.quantity}x {item.block_type.name}"
+                    for item in qs.items.all()[:3]
+                )
+                self.item_description = f"Quick Sale: {items_desc}"
+            elif qs.block_type:
+                self.item_description = f"Quick Sale: {qs.block_type.name}"
+            else:
+                self.item_description = f"Quick Sale #{qs.pk}"
+            self.unit = 'BLOCKS'
+
+        if self.log_type == 'SAND_SALE' and self.sand_sale and not self.item_description:
+            ss = self.sand_sale
+            self.item_description = f"Sand: {ss.quantity}x {ss.vehicle_type.name}"
+            self.unit = 'TRIPS'
+
+        # Auto-set verified_at timestamp
+        if self.is_verified and not self.verified_at:
+            self.verified_at = timezone.now()
+        elif not self.is_verified:
+            self.verified_at = None
+
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def get_dispatch_summary(supply_log):
+        """Returns dispatch status for a given invoice."""
+        logs = GateLog.objects.filter(supply_log=supply_log)
+        total_dispatched = logs.aggregate(total=Sum('quantity'))['total'] or 0
+        verified_count = logs.filter(is_verified=True).count()
+        total_logs = logs.count()
+        return {
+            'total_dispatched': total_dispatched,
+            'invoice_quantity': supply_log.quantity_delivered,
+            'remaining': supply_log.quantity_delivered - total_dispatched,
+            'is_fully_dispatched': total_dispatched >= supply_log.quantity_delivered,
+            'logs': total_logs,
+            'verified': verified_count,
+            'unverified': total_logs - verified_count,
+        }
+
+
 auditlog.register(User)
 auditlog.register(Material)
 auditlog.register(BlockType)
@@ -3010,3 +3281,4 @@ auditlog.register(OffenceCategory)
 auditlog.register(DisciplinaryRecord)
 auditlog.register(Fine)
 auditlog.register(WelfareFund)
+auditlog.register(GateLog)
