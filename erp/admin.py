@@ -1,4 +1,5 @@
 from django.contrib import admin, messages
+from django.db.models import Sum
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils import timezone
 from django.utils.html import format_html, mark_safe
@@ -2338,7 +2339,7 @@ class GateLogAdmin(RestrictedAdmin):
     list_filter = ['log_type', 'is_verified', 'date']
     search_fields = [
         'item_description', 'receiver_name', 'vehicle_description',
-        'remarks', 'supply_log__customer__name', 'quick_sale__buyer_name'
+        'remarks', 'sales_order__customer__name', 'quick_sale__buyer_name'
     ]
     date_hierarchy = 'date'
     readonly_fields = [
@@ -2351,9 +2352,9 @@ class GateLogAdmin(RestrictedAdmin):
             'fields': ('date', 'gate_number', 'log_type'),
         }),
         ('Linked Sale (select one based on type)', {
-            'fields': ('supply_log', 'quick_sale', 'sand_sale'),
+            'fields': ('sales_order', 'quick_sale', 'sand_sale'),
             'description': (
-                'For Block Sale: select the invoice. '
+                'For Block Sale: select the Sales Order. '
                 'For Quick Sale: select the quick sale. '
                 'For Sand Sale: select the sand sale. '
                 'For Non-Sale: leave all blank.'
@@ -2422,16 +2423,16 @@ class GateLogAdmin(RestrictedAdmin):
     def dispatch_summary_display(self, obj):
         if not obj.pk:
             return "Save first to see dispatch status."
-        if obj.log_type == 'BLOCK_SALE' and obj.supply_log_id:
-            summary = GateLog.get_dispatch_summary(obj.supply_log)
-            pct = int((summary['total_dispatched'] / summary['invoice_quantity'] * 100)) if summary['invoice_quantity'] > 0 else 0
+        if obj.log_type == 'BLOCK_SALE' and obj.sales_order_id:
+            summary = GateLog.get_dispatch_summary(obj.sales_order)
+            pct = int((summary['total_dispatched'] / summary['order_quantity'] * 100)) if summary['order_quantity'] > 0 else 0
             color = '#1D9E75' if summary['is_fully_dispatched'] else '#BA7517'
             return format_html(
                 '<span style="color:{}; font-weight:500;">'
-                'Invoice: {} blocks | Dispatched: {} | Remaining: {} | {}%'
+                'Order: {} blocks | Dispatched: {} | Remaining: {} | {}%'
                 '</span>',
                 color,
-                summary['invoice_quantity'],
+                summary['order_quantity'],
                 summary['total_dispatched'],
                 summary['remaining'],
                 pct
@@ -2472,7 +2473,7 @@ class GateLogAdmin(RestrictedAdmin):
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related(
-            'supply_log', 'supply_log__customer', 'supply_log__block_type',
+            'sales_order', 'sales_order__customer',
             'quick_sale', 'sand_sale', 'sand_sale__vehicle_type',
             'authorized_by', 'verified_by', 'recorded_by'
         )

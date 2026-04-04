@@ -3008,10 +3008,10 @@ class GateLog(models.Model):
     log_type = models.CharField(max_length=15, choices=LOG_TYPE_CHOICES, default='BLOCK_SALE')
 
     # === Sale links (nullable — only one should be set, or none for NON_SALE) ===
-    supply_log = models.ForeignKey(
-        'SupplyLog', on_delete=models.PROTECT, null=True, blank=True,
+    sales_order = models.ForeignKey(
+        'SalesOrder', on_delete=models.PROTECT, null=True, blank=True,
         related_name='gate_logs',
-        help_text="Link to block sale invoice (SupplyLog)"
+        help_text="Link to sales order for block dispatch"
     )
     quick_sale = models.ForeignKey(
         'QuickSale', on_delete=models.PROTECT, null=True, blank=True,
@@ -3091,8 +3091,8 @@ class GateLog(models.Model):
     @property
     def reference_number(self):
         """Returns the linked sale reference number for display on the slip."""
-        if self.supply_log_id:
-            return f"INV-{self.supply_log.pk:05d}"
+        if self.sales_order_id:
+            return f"SO-{self.sales_order.pk:05d}"
         elif self.quick_sale_id:
             return f"QS-{self.quick_sale.pk:05d}"
         elif self.sand_sale_id:
@@ -3107,8 +3107,8 @@ class GateLog(models.Model):
 
     def clean(self):
         # Validate that the correct FK is set for the log type
-        if self.log_type == 'BLOCK_SALE' and not self.supply_log:
-            raise ValidationError({'supply_log': 'You must select an invoice (Supply Log) for Block Sale type.'})
+        if self.log_type == 'BLOCK_SALE' and not self.sales_order:
+            raise ValidationError({'sales_order': 'You must select a Sales Order for Block Sale type.'})
         if self.log_type == 'QUICK_SALE' and not self.quick_sale:
             raise ValidationError({'quick_sale': 'You must select a Quick Sale for Quick Sale type.'})
         if self.log_type == 'SAND_SALE' and not self.sand_sale:
@@ -3116,20 +3116,23 @@ class GateLog(models.Model):
         if self.log_type == 'NON_SALE' and not self.item_description:
             raise ValidationError({'item_description': 'Item description is required for Non-Sale items.'})
 
-        # Hard block: check dispatch doesn't exceed invoice quantity
-        if self.log_type == 'BLOCK_SALE' and self.supply_log:
+        # Hard block: check dispatch doesn't exceed order quantity + 7% buffer
+        if self.log_type == 'BLOCK_SALE' and self.sales_order:
             already_dispatched = GateLog.objects.filter(
-                supply_log=self.supply_log
+                sales_order=self.sales_order
             ).exclude(pk=self.pk).aggregate(
                 total=Sum('quantity')
             )['total'] or 0
 
-            available = self.supply_log.quantity_delivered - already_dispatched
+            order_total = self.sales_order.total_quantity_ordered
+            buffer = int(order_total * Decimal('0.07'))
+            allowed = order_total + buffer
+            available = allowed - already_dispatched
             if self.quantity > available:
                 raise ValidationError({
                     'quantity': (
                         f"Cannot dispatch {self.quantity} blocks. "
-                        f"Invoice has {self.supply_log.quantity_delivered} delivered, "
+                        f"Order: {order_total} + 7% buffer ({buffer}) = {allowed} allowed, "
                         f"{already_dispatched} already dispatched, "
                         f"{available} remaining. "
                         f"Only Admin can override this."
@@ -3186,9 +3189,13 @@ class GateLog(models.Model):
             self.gate_number = (last.gate_number + 1) if last else 1
 
         # Auto-fill item description from linked sale
-        if self.log_type == 'BLOCK_SALE' and self.supply_log and not self.item_description:
-            sl = self.supply_log
-            self.item_description = f"{sl.block_type.name} → {sl.customer.name}"
+        if self.log_type == 'BLOCK_SALE' and self.sales_order and not self.item_description:
+            so = self.sales_order
+            items_desc = ', '.join(
+                f"{item.quantity_requested}x {item.block_type.name}"
+                for item in so.items.all()[:3]
+            )
+            self.item_description = f"{so.customer.name}: {items_desc}"
             self.unit = 'BLOCKS'
 
         if self.log_type == 'QUICK_SALE' and self.quick_sale and not self.item_description:
@@ -3219,17 +3226,18 @@ class GateLog(models.Model):
         super().save(*args, **kwargs)
 
     @staticmethod
-    def get_dispatch_summary(supply_log):
-        """Returns dispatch status for a given invoice."""
-        logs = GateLog.objects.filter(supply_log=supply_log)
+    def get_dispatch_summary(sales_order):
+        """Returns dispatch status for a given sales order."""
+        logs = GateLog.objects.filter(sales_order=sales_order)
         total_dispatched = logs.aggregate(total=Sum('quantity'))['total'] or 0
+        order_total = sales_order.total_quantity_ordered
         verified_count = logs.filter(is_verified=True).count()
         total_logs = logs.count()
         return {
             'total_dispatched': total_dispatched,
-            'invoice_quantity': supply_log.quantity_delivered,
-            'remaining': supply_log.quantity_delivered - total_dispatched,
-            'is_fully_dispatched': total_dispatched >= supply_log.quantity_delivered,
+            'order_quantity': order_total,
+            'remaining': order_total - total_dispatched,
+            'is_fully_dispatched': total_dispatched >= order_total,
             'logs': total_logs,
             'verified': verified_count,
             'unverified': total_logs - verified_count,

@@ -1250,7 +1250,7 @@ def generate_gate_log_slip(request, log_id):
     from .models import GateLog
     from .pdf_generator import GateLogSlipGenerator
     gate_log = GateLog.objects.select_related(
-        'supply_log', 'supply_log__customer', 'supply_log__block_type',
+        'sales_order', 'sales_order__customer',
         'quick_sale', 'sand_sale', 'sand_sale__vehicle_type',
         'authorized_by', 'verified_by'
     ).get(pk=log_id)
