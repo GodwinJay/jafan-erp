@@ -2243,7 +2243,7 @@ class AccountStatementGenerator(PDFGenerator):
         ):
             transactions.append({
                 'date': qs.date,
-                'description': f'Quick Sale: {qs.quantity}x {qs.block_type.name}',
+                'description': f'Quick Sale: {qs.items_summary}',
                 'reference': f'QS-{qs.pk:05d}',
                 'debit': None,
                 'credit': qs.total_amount
