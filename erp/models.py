@@ -387,6 +387,26 @@ class Expense(models.Model):
     transport_asset = models.ForeignKey(TransportAsset, on_delete=models.SET_NULL, null=True, blank=True)
     driver = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='driver_expenses')
 
+    # Optional: material/block consumption (non-production use)
+    material = models.ForeignKey(
+        'Material', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='non_production_usage',
+        help_text="If this expense consumed raw materials (cement, sand), select here to auto-deduct stock"
+    )
+    material_quantity = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Quantity consumed (bags, trips, etc.)"
+    )
+    block_type = models.ForeignKey(
+        'BlockType', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='non_production_usage',
+        help_text="If this expense used blocks (e.g. compensation), select here to auto-deduct stock"
+    )
+    block_quantity = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Number of blocks consumed/given out"
+    )
+
     receipt_number = models.CharField(max_length=50, blank=True, null=True)
     notes = models.TextField(blank=True)
     is_auto_synced = models.BooleanField(default=False, editable=False)
@@ -426,21 +446,41 @@ class Expense(models.Model):
             if old.vendor and not old.is_paid:
                 Vendor.objects.filter(pk=old.vendor.pk).update(account_balance=F('account_balance') - old.amount)
             elif old.vendor and old.is_paid:
-                # If paid, reverting doesn't inherently change vendor balance, assumes expense logic
-                pass 
+                pass
+            # Reverse old material stock deduction
+            if old.material and old.material_quantity:
+                Material.objects.filter(pk=old.material.pk).update(
+                    current_stock=F('current_stock') + old.material_quantity
+                )
+            # Reverse old block stock deduction
+            if old.block_type and old.block_quantity:
+                BlockType.objects.filter(pk=old.block_type.pk).update(
+                    current_stock=F('current_stock') + old.block_quantity
+                )
 
         if self.truck or self.transport_asset: self.business_unit = 'TRANSPORT'
         elif self.machine: self.business_unit = 'BLOCK'
         if self.is_paid and not self.payment_date: self.payment_date = self.date
-        
+
         super().save(*args, **kwargs)
-        
+
         # Apply New Financials
         if self.is_paid and self.payment_account:
             PaymentAccount.objects.filter(pk=self.payment_account.pk).update(current_balance=F('current_balance') - self.amount)
-        
+
         if self.vendor and not self.is_paid:
             Vendor.objects.filter(pk=self.vendor.pk).update(account_balance=F('account_balance') + self.amount)
+
+        # Apply new material stock deduction
+        if self.material and self.material_quantity:
+            Material.objects.filter(pk=self.material.pk).update(
+                current_stock=F('current_stock') - self.material_quantity
+            )
+        # Apply new block stock deduction
+        if self.block_type and self.block_quantity:
+            BlockType.objects.filter(pk=self.block_type.pk).update(
+                current_stock=F('current_stock') - self.block_quantity
+            )
 
     @transaction.atomic
     def delete(self, *args, **kwargs):
@@ -448,6 +488,16 @@ class Expense(models.Model):
             PaymentAccount.objects.filter(pk=self.payment_account.pk).update(current_balance=F('current_balance') + self.amount)
         if self.vendor and not self.is_paid:
             Vendor.objects.filter(pk=self.vendor.pk).update(account_balance=F('account_balance') - self.amount)
+        # Reverse material stock deduction
+        if self.material and self.material_quantity:
+            Material.objects.filter(pk=self.material.pk).update(
+                current_stock=F('current_stock') + self.material_quantity
+            )
+        # Reverse block stock deduction
+        if self.block_type and self.block_quantity:
+            BlockType.objects.filter(pk=self.block_type.pk).update(
+                current_stock=F('current_stock') + self.block_quantity
+            )
         super().delete(*args, **kwargs)
 
 

@@ -1040,6 +1040,16 @@ class ExpenseAdmin(RestrictedAdmin):
             "description": "Auto-synced expenses are created automatically from Procurement/Maintenance"
         }),
         ("Notes", {"fields": ("notes",)}),
+        ('Stock Consumption (optional)', {
+            'fields': ('material', 'material_quantity', 'block_type', 'block_quantity'),
+            'classes': ('collapse',),
+            'description': (
+                'Only fill this if this expense consumed physical stock. '
+                'For cement/sand used for repairs: select the material and quantity. '
+                'For blocks given as compensation: select the block type and quantity. '
+                'Stock will deduct automatically on save.'
+            ),
+        }),
     )
 
     @admin.display(description="Paid?", boolean=True)
