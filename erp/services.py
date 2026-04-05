@@ -75,10 +75,9 @@ class BlockIndustryPLService:
         )
         quick_sales_data = quick_sales.aggregate(
             total=Sum('total_amount'),
-            quantity=Sum('quantity')
         )
         quick_sales_revenue = quick_sales_data['total'] or Decimal('0')
-        quick_sales_quantity = quick_sales_data['quantity'] or 0
+        quick_sales_quantity = sum(qs.total_quantity for qs in quick_sales)
         
         # Combined block sales
         total_block_sales = block_sales + quick_sales_revenue
@@ -93,10 +92,15 @@ class BlockIndustryPLService:
         ).order_by('-revenue'))
         
         # Add QuickSale breakdown
-        quick_by_block = quick_sales.values('block_type__name').annotate(
-            revenue=Sum('total_amount'),
-            quantity=Sum('quantity')
-        )
+        from .models import QuickSaleItem
+        quick_by_block = QuickSaleItem.objects.filter(
+            quick_sale__date__gte=self.start_date,
+            quick_sale__date__lte=self.end_date
+            ).values('block_type__name').annotate(
+                revenue=Sum('line_total'),
+                quantity=Sum('quantity')
+            )
+
         
         # Merge QuickSale into by_block_type
         for qs_item in quick_by_block:
