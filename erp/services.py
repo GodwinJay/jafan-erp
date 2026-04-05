@@ -136,31 +136,30 @@ class BlockIndustryPLService:
         Uses the frozen cost_of_goods_sold from SupplyLog (WAC at time of sale).
         For QuickSale, we estimate COGS using current WAC from BlockType.
         """
-        from .models import SupplyLog, QuickSale
-        
+        from .models import SupplyLog, QuickSale, QuickSaleItem
+
         supplies = SupplyLog.objects.filter(
             date__gte=self.start_date,
             date__lte=self.end_date
         )
-        
+
         cogs_data = supplies.aggregate(
             total_cogs=Sum('cost_of_goods_sold'),
             total_gross_profit=Sum('gross_profit_on_sale')
         )
-        
+
         supply_cogs = cogs_data['total_cogs'] or Decimal('0')
-        
-        # QuickSale COGS (estimate using current WAC)
-        quick_sales = QuickSale.objects.filter(
-            date__gte=self.start_date,
-            date__lte=self.end_date
+
+        # QuickSale COGS (estimate using current WAC per item)
+        quick_sale_items = QuickSaleItem.objects.filter(
+            quick_sale__date__gte=self.start_date,
+            quick_sale__date__lte=self.end_date
         ).select_related('block_type')
-        
+
         quick_sale_cogs = Decimal('0')
-        for qs in quick_sales:
-            # Use WAC from block type
-            wac = qs.block_type.weighted_average_cost or Decimal('0')
-            quick_sale_cogs += wac * qs.quantity
+        for item in quick_sale_items:
+            wac = item.block_type.weighted_average_cost or Decimal('0')
+            quick_sale_cogs += wac * item.quantity
         
         total_cogs = supply_cogs + quick_sale_cogs
         
